@@ -28,7 +28,8 @@ The interesting parts:
   authority and client id allowlists widen only from a user-owned configuration file, one entry at a
   time. [docs/CLI.md](docs/CLI.md) is the contract.
 
-The window this client asks for is drawn by another process. The threat model for the portal — the
-phishing surface an interactive sign-in API creates, the certificate grant lifetime, the app id the
-frontend derives — is in
+This client's threat model, access-control rules, OAuth rules and secret handling are in
+[docs/SECURITY.md](docs/SECURITY.md). The window it asks for is drawn by another process; the threat
+model for the portal (the phishing surface an interactive sign-in API creates, the certificate grant
+lifetime, the app id the frontend derives) is in
 [xdg-desktop-portal-webauth's docs/SECURITY.md](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/SECURITY.md).

@@ -190,6 +190,7 @@ Intune-enrolled devices, which hold a device-bound primary refresh token this cl
 |---|---|
 | [docs/CLI.md](docs/CLI.md) | The contract: verbs, options, JSON, exit codes, configuration |
 | [docs/TESTING.md](docs/TESTING.md) | The suites, the end-to-end run, and what the live runs proved |
+| [docs/SECURITY.md](docs/SECURITY.md) | Threat model, access control, OAuth rules, secret handling |
 | [docs/decisions/](docs/decisions/) | The architecture decision records |
 
 [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md) are at the top level.
