@@ -5,16 +5,15 @@ Status: accepted (for the sketch)
 
 ## Context
 
-Connecting to Azure Virtual Desktop requires two Entra ID access tokens per connection, and
-obtaining them on a smart-card tenant requires a browser that can answer a TLS client-certificate
-challenge and collect a PKCS#11 PIN. Four candidate homes for that work were considered.
+The problem, and what the tokens are for, are in [README.md](../../README.md). Four candidate homes
+for the work were considered.
 
 **In `libfreerdp-client`.** FreeRDP already has a minimal OAuth implementation there (an
 authorization-URL builder, a terminal paste flow, a token exchange). Extending it was attempted:
 the resulting change was roughly 2,300 lines, and the maintainer's position is that FreeRDP
-should not grow that implementation. That position is defensible on its own terms — an embedded
+should not grow that implementation. That position is defensible on its own terms: an embedded
 browser, a certificate chooser, a PIN prompt and a keyring integration are not RDP protocol
-functionality, and they would become a dependency burden for every packager of the library.
+functionality, and would become a dependency burden for every packager of the library.
 
 **In Remmina.** The chooser and PIN prompt already work there. But it strands KRDC, sdl-freerdp,
 gtk-frdp and anything else behind the same missing UI, and it buries a desktop identity capability
@@ -22,13 +21,12 @@ inside one client's RDP plugin.
 
 **As a shared library** that clients link. This still forces every client to link WebKit, p11-kit
 and libsecret, forces a toolkit choice on callers, and puts refresh tokens in the client's address
-space — which means the credential boundary is only as good as the least careful client.
+space, so the credential boundary is only as good as the least careful client.
 
 **As a standalone per-user process** with a narrow, versioned interface.
 
-The `nativeclient` redirect constraint (see [0002](0002-no-loopback-redirect.md)) rules out any
-design that delegates to the user's own browser, so *something* local must host a web view. The
-question is only what that something is.
+The `nativeclient` redirect constraint ([0002](0002-no-loopback-redirect.md)) rules out delegating
+to the user's own browser, so *something* local must host a web view. The question is only what.
 
 ## Decision
 

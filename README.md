@@ -1,13 +1,26 @@
 # entra-token-helper
 
-A Linux command-line client that acquires Entra ID / Azure Virtual Desktop access tokens. It owns
-the OAuth half: PKCE, the authorization-code exchange, the refresh grant, proof-of-possession
-tokens bound to a key its caller generated, and a Secret Service account store. It asks
-xdg-desktop-portal to draw the sign-in window through the experimental
-`org.freedesktop.portal.experimental.WebAuthentication` interface. The portal, not this program,
-hosts the web engine; with the companion certificate portal behind it, that window answers a
-smart-card TLS client-certificate challenge. This client calls the portal and nothing else, and does
-not know which backend serves it.
+## Why this exists
+
+A Linux RDP client connecting to Azure Virtual Desktop (AVD) must first obtain access tokens from
+Entra ID, Microsoft's identity service, formerly Azure AD. On a tenant that requires a smart card
+during sign-in and registers no local redirect URI, both ordinary routes are closed: the sign-in
+cannot be handed to the user's own browser, and Microsoft's Intune broker, the Identity Broker
+service for enrolled devices, is absent on an unenrolled machine. Each client has therefore had to
+embed a web engine of its own, or ask the user to paste a redirect URL back out of a browser. This
+program does the OAuth once, for any caller, and asks the desktop portal for the window.
+
+## What it is
+
+A Linux command-line client that acquires Entra ID / AVD access tokens. It owns the OAuth half:
+PKCE, the authorization-code exchange, the refresh grant, proof-of-possession tokens (access tokens
+bound to a key the caller holds, so a copy taken from the wire is useless on its own), and an
+account store in the Secret Service, the freedesktop D-Bus secret-storage API that GNOME Keyring
+and KWallet implement. It asks xdg-desktop-portal to draw the sign-in window through the
+experimental `org.freedesktop.portal.experimental.WebAuthentication` interface. The portal, not this
+program, hosts the web engine; with the companion certificate portal behind it, that window answers
+a smart-card TLS client-certificate challenge. This client calls the portal and nothing else, and
+does not know which backend serves it.
 
 ## Status
 
@@ -22,7 +35,7 @@ Last checked 2026-09-07.
 | Interactive sign-in through the portal | Implemented (`src/webauth_client.c`) |
 | Sign-in against a real identity provider, with a smart card | Proven 2026-09-05 (below) |
 | The full FreeRDP-to-AVD chain | Proven 2026-09-05, through a fork-only proof of concept |
-| A portal exporting the interface | Required: an experimental branch of xdg-desktop-portal, behind a gate |
+| A portal exporting the interface | Required: an experimental branch of xdg-desktop-portal, behind the gate described below |
 | Integration with FreeRDP's helper protocol ([#13340](https://github.com/FreeRDP/FreeRDP/pull/13340)) | Not implemented |
 | Proposed anywhere | No. No issue and no pull request, for this client or for the portals it uses |
 | Packaging, a release, an independent security review | Not done |
@@ -34,9 +47,11 @@ Two runs on real hardware, both on 2026-09-05:
   certificate portal's PKCS#11 module, the shell prompted for the PIN, the card signed with RSA-PSS,
   and the completion navigation was intercepted with the authorization code captured.
 - 14:21. The whole chain: an sdl-freerdp fork branch, this client, both portals, the card, and an
-  Azure Virtual Desktop session. Real tokens were exchanged. The ARM gateway token came from the
-  keyring cache. The RDS proof-of-possession token needed one interactive re-authentication through
-  the portal window, which the tenant's Conditional Access policy explains.
+  Azure Virtual Desktop session. A connection needs two real tokens: one for the Azure Resource
+  Manager (ARM) gateway that brokers it, one for the session host, on the Remote Desktop Services
+  (RDS) scope. The ARM token came from the keyring cache. The RDS proof-of-possession token needed
+  one interactive re-authentication through the portal window, demanded by Conditional Access, the
+  tenant rules deciding when a fresh interactive sign-in is required.
 
 The evidence is narrow: one PIV card, one reader, OpenSC, GNOME 50 on Wayland, one tenant. A second
 card, a PIN-pad reader, card removal mid-operation, KDE and a Flatpak runtime were not exercised.
@@ -66,9 +81,9 @@ card, a PIN-pad reader, card removal mid-operation, KDE and a Flatpak runtime we
        the certificate chooser, the PIN prompt, the signing key on the card.
 ```
 
-The interface is not exported unless xdg-desktop-portal was started with
-`XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL=web-authentication` (or `all`), off by default. With the
-gate off, a request needing a window exits `40` and names the variable; cached tokens and account
+The gate is an environment variable, off by default: unless xdg-desktop-portal was started with
+`XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL=web-authentication` (or `all`), the interface is not
+exported, and a request needing a window exits `40` naming the variable. Cached tokens and account
 management do not need the portal.
 
 ## The CLI
@@ -95,17 +110,16 @@ $ entra-token-helper token --cloud usgov --tenant <tenant-id> \
   "schema": 1,
   "status": "ok",
   "token": "eyJ0eXAiOiJhdCtqd3Qi...",
-  "access_token": "eyJ0eXAiOiJhdCtqd3Qi...",
   "token_type": "pop",
   "expires_in": 3599,
-  "scope": "ms-device-service://termsrv.wvd.microsoft.com/name/<host>/user_impersonation",
   "account": "<user>@<tenant-domain>"
 }
 ```
 
-A proof-of-possession token is never cached, so each one is a fresh grant. On the tested tenant the
-RDS scope required one interactive re-authentication, answered inside the portal window. The full
-contract is [docs/CLI.md](docs/CLI.md).
+`--req-cnf` is the binding: a base64url JSON confirmation object naming the key the caller
+generated. A proof-of-possession token is never cached, so each one is a fresh grant. On the tested
+tenant the RDS scope required one interactive re-authentication, answered inside the portal window.
+The full contract is [docs/CLI.md](docs/CLI.md).
 
 ## Try it
 
@@ -126,12 +140,10 @@ $ WEBAUTH_REPO=../xdg-desktop-portal-webauth XDP_BUILD=../xdg-desktop-portal/bui
     tools/entra-e2e.sh
 ```
 
-It stands up `xdg-permission-store`, the frontend with the gate on, the webauth backend, and
+It stands up `xdg-permission-store`, the frontend with the gate on, the webauth backend and
 `tools/mock-token-endpoint.py`, an Entra-shaped authority, on one private bus inside one headless
-X server, then drives seven runs covering the four verbs, the cache, the interstitial path a
-proof-of-possession token takes, and a machine with no portal at all. The assertions are lines the
-mock's event log wrote, not inferences from exit codes. [docs/TESTING.md](docs/TESTING.md) has the
-rest.
+X server, then drives seven runs against them. The assertions are lines the mock's event log wrote,
+not inferences from exit codes. [docs/TESTING.md](docs/TESTING.md) has the rest.
 
 ## Relationship to FreeRDP
 
@@ -145,12 +157,14 @@ That seam is the integration path, and it is not this program: it is a small hel
 #13340's protocol that forwards `navigate` to the portal. Under that split FreeRDP needs none of
 this client's OAuth code. The `client/entra-token-helper` branch used in the 2026-09-05 chain is a
 fork-only proof of concept, not proposed upstream. `sso-mib` remains the sibling provider for
-Intune-enrolled devices, which hold a device-bound primary refresh token this client cannot mint.
+Intune-enrolled devices: it talks over D-Bus to the Microsoft Identity Broker, the service Microsoft
+ships for enrolled Linux machines, which holds a device-bound primary refresh token, a long-lived
+credential tied to the device itself, that this client cannot mint.
 
 ## Why not
 
-- A loopback redirect with `xdg-open`: the only redirect URI registered for the AVD public client is
-  a remote HTTPS one, so nothing local can receive the completion.
+- A loopback redirect with `xdg-open`: the AVD public client's only registered redirect URI is a
+  remote HTTPS one, so nothing local can receive the completion.
   [0002](docs/decisions/0002-no-loopback-redirect.md)
 - Impersonating the Microsoft Identity Broker's D-Bus name: no stable contract to implement, and the
   name asserts enrollment semantics a browser flow cannot honour.
@@ -161,24 +175,21 @@ Intune-enrolled devices, which hold a device-bound primary refresh token this cl
 
 ## Related repositories
 
-- [xdg-desktop-portal-webauth](https://github.com/sjtrotter/xdg-desktop-portal-webauth): the portal
-  backend that draws the sign-in window this client asks for.
+- [xdg-desktop-portal-webauth](https://github.com/sjtrotter/xdg-desktop-portal-webauth): the backend
+  that draws the sign-in window.
 - [xdg-desktop-portal-certificate](https://github.com/sjtrotter/xdg-desktop-portal-certificate): the
-  certificate portal backend: the chooser, the PIN prompt, and the PKCS#11 module the webauth
-  backend loads.
+  chooser, the PIN prompt, and the PKCS#11 module the webauth backend loads.
 - [xdg-desktop-portal, branch `experimental/certificate-webauthentication`](https://github.com/sjtrotter/xdg-desktop-portal/tree/experimental/certificate-webauthentication):
   the frontend that exports both interfaces.
 
 ## Known problems and open questions
 
-- Nothing here is proposed anywhere. The interface this client depends on lives on a personal branch
-  of xdg-desktop-portal behind an experimental gate. If it is refused, there is nothing to call.
-- The FreeRDP integration is not written. Until the #13340 helper exists, the only demonstrated
-  caller is a fork-only proof of concept.
+- The interface this client depends on is on a personal branch of xdg-desktop-portal, behind the
+  gate, proposed nowhere. If it is refused, there is nothing to call.
 - One certificate handshake raises two chooser dialogs and one PIN prompt, for reasons belonging to
   the certificate portal, not to this client.
-- One tenant, one card, one desktop. Conditional Access behaviour, the RDS interstitial, and whether
-  a refresh token survives long enough to make the silent path worth having are single observations.
+- Conditional Access behaviour, the RDS interstitial, and whether a refresh token survives long
+  enough to make the silent path worth having are single observations.
 - Identity providers may refuse an embedded engine outright, and the portal's session store is not
   Firefox's or Chrome's, so real browser SSO is not reproduced.
 - The account name printed by `login` comes from an unverified ID token claim: a label, authorizing
@@ -189,7 +200,7 @@ Intune-enrolled devices, which hold a device-bound primary refresh token this cl
 | | |
 |---|---|
 | [docs/CLI.md](docs/CLI.md) | The contract: verbs, options, JSON, exit codes, configuration |
-| [docs/TESTING.md](docs/TESTING.md) | The suites, the end-to-end run, and what the live runs proved |
+| [docs/TESTING.md](docs/TESTING.md) | The suites, the end-to-end run, and how to repeat the live runs |
 | [docs/SECURITY.md](docs/SECURITY.md) | Threat model, access control, OAuth rules, secret handling |
 | [docs/decisions/](docs/decisions/) | The architecture decision records |
 
@@ -197,12 +208,11 @@ Intune-enrolled devices, which hold a device-bound primary refresh token this cl
 
 ## License
 
-LGPL-2.1-or-later. [LICENSE](LICENSE) is the LGPL-2.1 text,
+LGPL-2.1-or-later, matching xdg-desktop-portal and the two portal backends this client is written
+against. [LICENSE](LICENSE) is the LGPL-2.1 text and
 [LICENSES/LGPL-2.1-or-later.txt](LICENSES/LGPL-2.1-or-later.txt) its REUSE copy; every file in
-`src/` and `tests/` carries `SPDX-License-Identifier: LGPL-2.1-or-later`, and so does the
-`license:` field of `meson.build`. They agree. This matches xdg-desktop-portal and the two portal
-backends this client is written against. The binary is a separate process from any caller, reached
-by `fork`/`exec` and a pipe, so no linking question arises with FreeRDP (Apache-2.0).
+`src/` and `tests/` carries the SPDX identifier, as does the `license:` field of `meson.build`. The binary is a separate process from any caller, reached by `fork`/`exec`
+and a pipe, so no linking question arises with FreeRDP (Apache-2.0).
 
 ## AI assistance
 

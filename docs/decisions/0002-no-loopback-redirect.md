@@ -5,12 +5,12 @@ Status: accepted (forced)
 
 ## Context
 
-For a native application, the recommended OAuth 2.0 redirect (RFC 8252) is a loopback URI —
-`http://127.0.0.1:<random port>/` — which lets the application open the system browser, let the
+For a native application, the recommended OAuth 2.0 redirect (RFC 8252) is a loopback URI,
+`http://127.0.0.1:<random port>/`, which lets the application open the system browser, let the
 user authenticate in the browser they already trust, and receive the authorization code on a
-local socket. It is better than an embedded web view in every way that matters: the user sees a
-real address bar, the browser's own smart-card handling does the card work, and the application
-never touches the credential exchange.
+local socket. It is better than an embedded web view in every way that matters: a real address
+bar, the browser's own smart-card handling, and an application that never touches the credential
+exchange.
 
 We cannot use it.
 
@@ -29,8 +29,8 @@ and not something available to us.
 
 Registering our *own* public client in the tenant was also considered. It would need tenant
 administrator consent for the AVD resources on every tenant it is used in, which turns a
-piece of client software into a per-tenant deployment project — and it does not help the
-non-enrolled devices in tenants we do not control, which are the whole reason this exists.
+piece of client software into a per-tenant deployment project. It also does not help the
+non-enrolled devices that are the reason this exists ([README.md](../../README.md)).
 
 ## Decision
 

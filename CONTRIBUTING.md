@@ -1,8 +1,8 @@
 # Contributing
 
-The client is implemented. It signed in against a real Entra ID tenant and ran the full
-FreeRDP-to-AVD chain on 2026-09-05; read [docs/TESTING.md](docs/TESTING.md) before changing
-anything, because most of the rules here have a test.
+What this client is, and what it has been proven to do, are in [README.md](README.md). Read
+[docs/TESTING.md](docs/TESTING.md) before changing anything, because most of the rules here have a
+test.
 
 ## What is most wanted
 
@@ -44,11 +44,11 @@ $ meson setup build && ninja -C build && meson test -C build
 
 GLib, GIO, libsoup-3, json-glib and libsecret, all required. `meson test` is the whole no-display
 suite: six suites, no bus and no network. The end-to-end run needs a headless X server, a built
-frontend and a checkout of the portal backend — see [docs/TESTING.md](docs/TESTING.md).
+frontend and a checkout of the portal backend. See [docs/TESTING.md](docs/TESTING.md).
 
 ## Style
 
-C11, tabs, 100 columns, an SPDX header — see [`.editorconfig`](.editorconfig). Headers carry the
+C11, tabs, 100 columns, an SPDX header; see [`.editorconfig`](.editorconfig). Headers carry the
 doc comments: a header explaining *why* an interface is shaped the way it is is worth more than one
 restating its own signatures, and a rule that has a reason should be readable next to the code that
 enforces it.

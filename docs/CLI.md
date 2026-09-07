@@ -1,15 +1,12 @@
 # Entra client CLI contract
 
-Status: **implemented**. `entra-token-helper` signs in through the web authentication portal,
-exchanges the code, stores an account in the Secret Service, serves later requests from its cache,
-and mints proof-of-possession tokens bound to a key its caller generated. Everything below has been
-exercised end to end against a mock authority (`tools/entra-e2e.sh`), and, on 2026-09-05, against a
-real Entra ID tenant: a live sign-in at 10:42 and the full FreeRDP-to-AVD chain at 14:21, with one
-interactive re-auth for the RDS proof-of-possession token.
+This is the contract for `entra-token-helper`, the Entra ID / AVD token client: the interface
+FreeRDP frontends and other programs are expected to depend on. What the client is, and what has
+been proven about it, are in [README.md](../README.md); everything below is implemented and
+exercised, against a mock authority by `tools/entra-e2e.sh` and against a real tenant by hand.
 
-This is the contract for `entra-token-helper`, the Entra ID / AVD token client — the interface
-FreeRDP frontends and other programs are expected to depend on. The web authentication portal the
-client calls when it needs a window has its own contract, in its own project:
+The web authentication portal the client calls when it needs a window has its own contract, in its
+own project:
 [PUBLIC-INTERFACE.md](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/PUBLIC-INTERFACE.md).
 The two are independent and versioned separately.
 
@@ -44,7 +41,7 @@ human can manage state without a connection in flight.
 | `--client-id <guid>` | `login`, `token` | Public client id. Defaults to the AVD client `a85cf173-4192-42f8-81fa-777a763e6e2c`. Must be in the allowlist unless a *user* has added it in the configuration file. |
 | `--scope <scope>` | `login`, `token` | Repeatable, given decoded. One occurrence may also carry a space-separated list; several occurrences and one space-separated occurrence mean exactly the same request and hit the same cache entry. Order is not significant; the cache key is the sorted, de-duplicated set. |
 | `--req-cnf <b64url>` | `token` | Base64url-encoded JSON confirmation object, e.g. `{"kid": "<key-id>"}`, produced by FreeRDP. Its presence makes the request a proof-of-possession request; its absence makes it a bearer request. |
-| `--account <id>` | `token`, `logout` | Which stored account to use. Omitted on `token`: the only account matching authority+tenant+client, or exit `30` if there is none or more than one — never a guess. Omitted on `logout`: every account. |
+| `--account <id>` | `token`, `logout` | Which stored account to use. Omitted on `token`: the only account matching authority+tenant+client, or exit `30` if there is none or more than one, never a guess. Omitted on `logout`: every account. |
 | `--prompt {auto,always,never}` | `login`, `token` | `auto` (default): silent if possible, call the portal if not. `always`: force an interactive transaction even if a cached token would do. `never`: silent only; exit `10` rather than calling the portal. `login` treats `never` as an error (exit `64`). |
 | `--parent-window <handle>` | `login`, `token` | Optional and advisory. Passed straight through to the portal's `Start` so the sign-in window can be parented to the application that asked. Never trusted for authorization by any layer. |
 | `--session-mode {shared,ephemeral}` | `login`, `token` | Optional. Passed through to the portal. The portal decides: an unidentified caller is narrowed to `ephemeral` whatever it asks for. |
@@ -85,18 +82,18 @@ exit, stdout is **empty**.
 }
 ```
 
-- `status` — `"ok"` on success; otherwise the symbolic name of the exit condition
+- `status`: `"ok"` on success; otherwise the symbolic name of the exit condition
   (`"interaction_required"`, `"cancelled"`, `"no_account"`, `"unavailable"`, `"server_error"`,
   `"usage"`, `"internal"`).
-- `token` and `access_token` — the same string under both names: `token` is the name this contract
+- `token` and `access_token`: the same string under both names: `token` is the name this contract
   fixed, `access_token` the name every OAuth consumer already reads. Present only when `status` is
   `"ok"` and the verb is `token`.
-- `token_type` — `"Bearer"` or `"pop"`, as the authority spelled it.
-- `expires_in` — seconds remaining, relative to when the response was written.
-- `scope` — the scope the authority granted, which is not always the scope that was asked for.
-- `account` — the account the token belongs to.
-- `error` — present when `status` is not `"ok"`: a short, stable, machine-readable symbol.
-- `message` — present when `status` is not `"ok"`: a human-readable sentence, already redacted.
+- `token_type`: `"Bearer"` or `"pop"`, as the authority spelled it.
+- `expires_in`: seconds remaining, relative to when the response was written.
+- `scope`: the scope the authority granted, which is not always the scope that was asked for.
+- `account`: the account the token belongs to.
+- `error`: present when `status` is not `"ok"`, a short, stable, machine-readable symbol.
+- `message`: present when `status` is not `"ok"`, a human-readable sentence, already redacted.
   It never contains a token, a code, or an authorization-server `error_description`.
 
 For `accounts --json`, and for `login --json` and `logout --json`, the object carries an
@@ -108,12 +105,12 @@ For `accounts --json`, and for `login --json` and `logout --json`, the object ca
 |---|---|---|
 | `0` | success | The request succeeded. For `token`, stdout holds the token. |
 | `10` | interaction required | An interactive transaction would have been needed and `--prompt never` was given. The caller may retry with `--prompt auto`. Not an error condition; it is the documented way to ask "can you do this silently?" |
-| `20` | cancelled | The portal responded `1`: the user closed the sign-in window, or cancelled the certificate chooser or the PIN prompt. A caller should **not** immediately retry interactively — the user just said no. |
+| `20` | cancelled | The portal responded `1`: the user closed the sign-in window, or cancelled the certificate chooser or the PIN prompt. A caller should **not** immediately retry interactively. The user just said no. |
 | `30` | no such account | No account matched, `--account` named one that is not stored, or more than one matched and none was named. The caller should run `login`. |
-| `40` | provider unavailable | The client cannot do its job in this environment: `org.freedesktop.portal.experimental.WebAuthentication` is not exported, so there is nothing to call for an interactive request. **That is the default state of a machine**: the interface is experimental and absent unless xdg-desktop-portal was started with `XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL=web-authentication`. The same code covers a portal with the gate on but no backend configured (it exports nothing either), no session bus, no Secret Service keyring, and an authority that cannot be reached at all — indistinguishable by design. **The message names the environment variable**, because on a developer's machine that is almost always what is wrong. A dispatcher should treat this as "decline" and fall through to the next provider (e.g. FreeRDP's terminal paste flow). |
+| `40` | provider unavailable | The client cannot do its job in this environment: `org.freedesktop.portal.experimental.WebAuthentication` is not exported, so there is nothing to call for an interactive request. **That is the default state of a machine**: the interface is experimental and absent unless xdg-desktop-portal was started with `XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL=web-authentication`. The same code covers a portal with the gate on but no backend configured (it exports nothing either), no session bus, no Secret Service keyring, and an authority that cannot be reached at all, indistinguishable by design. **The message names the environment variable**, because on a developer's machine that is almost always what is wrong. A dispatcher should treat this as "decline" and fall through to the next provider (e.g. FreeRDP's terminal paste flow). |
 | `50` | authorization server error | The authority refused for a reason a window will not fix: a bad client, a bad request, a server fault. The details are on stderr, redacted to the OAuth error code. |
 | `64` | usage | Bad arguments. (`64` is `EX_USAGE` from `sysexits.h`.) |
-| `70` | internal | An unexpected failure in the client itself — including a portal `Response` of `2` for a reason other than unavailability, such as a timeout or a `backend_completion_mismatch`, and a completion URI that failed the callback classifier. (`70` is `EX_SOFTWARE`.) |
+| `70` | internal | An unexpected failure in the client itself, including a portal `Response` of `2` for a reason other than unavailability, such as a timeout or a `backend_completion_mismatch`, and a completion URI that failed the callback classifier. (`70` is `EX_SOFTWARE`.) |
 
 The distinction that matters to a dispatcher is `40` (decline, try someone else) versus `20`
 (stop, the user said no) versus `50` (stop, the server said no). Collapsing these into a boolean
@@ -150,13 +147,14 @@ and exit `10` when it does not.
 A **bearer** request, in order:
 
 1. The cache, unless `--prompt always`. A cached access token is used if it is more than five
-   minutes from expiry. **This costs no network at all** — not even a discovery fetch.
+   minutes from expiry. **This costs no network at all**, not even a discovery fetch.
 2. The `refresh_token` grant.
 3. A full interactive sign-in, if `--prompt` allows one; otherwise exit `10`, or exit `30` when
    there is no account to refresh from.
 
-A **proof-of-possession** request (`--req-cnf`) never uses the cache — a PoP token is bound to one
-key, and a cache that ignored the binding would hand back a token the caller cannot use — and adds
+A **proof-of-possession** request (`--req-cnf`) never uses the cache, because a PoP token is bound
+to one key and a cache that ignored the binding would hand back a token the caller cannot use. It
+adds
 `token_type=pop` and `req_cnf` to the grant. It goes:
 
 1. The `refresh_token` grant, with the confirmation object.
@@ -167,11 +165,11 @@ key, and a cache that ignored the binding would hand back a token the caller can
 
 **Expect a window here, and expect it to say something odd.** The RDS-AAD scope is
 `ms-device-service://termsrv.wvd.microsoft.com/name/<host>/user_impersonation`, and Entra routinely
-puts an interstitial in front of it — "you are connecting to a remote desktop", "make sure you
+puts an interstitial in front of it: "you are connecting to a remote desktop", "make sure you
 trust this client". That page appears **inside the portal's sign-in window** at this step, is
 answered there, and is the reason no `prompt` parameter is sent on this request: naming one of ours
 would only fight with it. A run observed on hardware, 2026-09-03, shows FreeRDP doing exactly
-this — a second authorization for the device-service scope, then `grant_type=authorization_code`
+this: a second authorization for the device-service scope, then `grant_type=authorization_code`
 with `req_cnf`.
 
 ### The callback classifier
@@ -184,7 +182,7 @@ A URI is accepted only when:
   resource);
 - there is no userinfo and no fragment;
 - `state` occurs exactly once and matches in constant time;
-- exactly one of `code` or `error` is present, each occurring exactly once — **a parameter present
+- exactly one of `code` or `error` is present, each occurring exactly once. **A parameter present
   without a value still counts as an occurrence**, so `?code=good&code` is refused;
 - every percent escape is well formed and none decodes to `%00`.
 
@@ -198,7 +196,7 @@ attributes:
 
 | Attribute | Value |
 |---|---|
-| `authority` | `https://<host>/<tenant>` — the full base, so the same person in two tenants is two items rather than one overwriting the other |
+| `authority` | `https://<host>/<tenant>`, the full base, so the same person in two tenants is two items rather than one overwriting the other |
 | `client_id` | the public client id |
 | `account` | the UPN |
 
@@ -240,12 +238,12 @@ the same payload.
 - `scopes` are **decoded**. Whether a scope arrives encoded or decoded is exactly the kind of
   ambiguity the current FreeRDP varargs convention leaves open, so it is pinned here.
 - `parent_window` is optional and advisory. It is passed straight through to the portal's `Start`
-  — and by the frontend, uninterpreted, to whichever backend parses it — so the sign-in window can
+  and by the frontend, uninterpreted, to whichever backend parses it, so the sign-in window can
   be parented to the application that asked, and it is never trusted for authorization by any
   layer.
 - Fields a caller may **not** set, in any transport: token endpoint, authorization endpoint,
   redirect URI, or any URL at all. The client derives every URL from the authority and its own
-  cloud table, and it is the client — not its caller — that gives the portal its `completion_uri`.
+  cloud table, and it is the client, not its caller, that gives the portal its `completion_uri`.
   See [SECURITY.md](../SECURITY.md).
 
 ### Response
@@ -311,7 +309,7 @@ Within `"schema": 1`:
   response. A consumer must ignore fields it does not recognise.
 - New exit codes may be added for conditions that do not fit an existing one; a consumer should
   treat an unknown non-zero code as a hard error rather than as a decline.
-- `status` and `error` symbols are stable. `message` text is not — do not parse it.
+- `status` and `error` symbols are stable. `message` text is not: do not parse it.
 
 A change to any of the above requires `"schema": 2` and a documented migration. Until this
 project has acquired a single real token, the schema should be considered provisional.
@@ -319,7 +317,7 @@ project has acquired a single real token, the schema should be considered provis
 The portal interface version is separate. A caller of this CLI never sees it, and the client is
 expected to work against anything implementing version 1 of
 [`org.freedesktop.portal.experimental.WebAuthentication`](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/PUBLIC-INTERFACE.md)
-— including, one day, a desktop-native backend rather than that project's own, or the frontend
+including, one day, a desktop-native backend rather than that project's own, or the frontend
 having moved into xdg-desktop-portal entirely
 ([UPSTREAMING.md](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/UPSTREAMING.md)).
 The backend interface version is separate again and is nobody's business here.

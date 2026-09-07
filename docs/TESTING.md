@@ -1,8 +1,9 @@
 # Testing
 
-Three tiers, in the order of what they cost: unit tests that need nothing, an end-to-end run that
-needs a headless X server and two other builds, and a live run against a real tenant with a real
-card that cannot be automated at all.
+What the client is, and what the live runs proved, are in [README.md](../README.md). This document
+is how the three tiers are run, in the order of what they cost: unit tests that need nothing, an
+end-to-end run that needs a headless X server and two other builds, and a live run against a real
+tenant with a real card that cannot be automated at all.
 
 ## Unit tests
 
@@ -18,7 +19,7 @@ No display, no session bus, no network. Six suites, 68 assertions:
 | `callback` | The classifier: exact redirect match, no userinfo, no fragment, exactly one of `code` or `error`, a parameter present without a value still counting as an occurrence, strict percent-decoding |
 | `jwt` | Which ID token claim the account name comes from, and that a malformed token is refused rather than guessed at |
 | `discovery` | The cloud table and the client id allowlist, authority parsing, endpoints derived without a network, a discovery document refining them, an endpoint on another host or in plaintext discarded, the authorization URL, and how a token response and its errors are read |
-| `cache` | The cache key — the sorted, de-duplicated scope set, so `--scope a --scope b` and `--scope "b a"` hit one entry — the five-minute expiry margin, a record surviving JSON, and that the exit codes are the documented ones |
+| `cache` | The cache key: the sorted, de-duplicated scope set, so `--scope a --scope b` and `--scope "b a"` hit one entry. Also the five-minute expiry margin, a record surviving JSON, and that the exit codes are the documented ones |
 | `redact` | That no token, code, account or server `error_description` can reach a log line, that a tenant is logged only as a hash, and that `--verbose` is a frequency and not a permission |
 
 ## End to end, against a mock authority
@@ -49,8 +50,8 @@ adapter**, and `tools/mock-token-endpoint.py` on one private bus inside one head
 runs the client against them as an ordinary application calling the public interface. The keyring is
 libsecret's file backend, so no daemon and no unlock prompt are involved.
 
-The mock serves what a tenant serves — the OpenID configuration, an `/authorize` that records the
-`code_challenge`, a `/token` that verifies `S256` against it — authenticates nobody, and mints
+The mock serves what a tenant serves: the OpenID configuration, an `/authorize` that records the
+`code_challenge`, and a `/token` that verifies `S256` against it. It authenticates nobody, and mints
 strings. It writes an event log carrying method, path, grant type and whether the request was a PoP
 request, and **never** a code, a verifier, a token or a challenge. That log is what the run asserts
 on: "a PoP grant reached the authority" is a line the server wrote, and "the cache was used" is the
@@ -75,29 +76,23 @@ A final check greps the client's stderr for anything that must never be written 
 Not scriptable and not to be run unattended: a real session bus, the real card in the real reader, a
 real tenant, and a real PIN retry counter to spend. Stand the two portals up on the desktop as
 [xdg-desktop-portal-webauth's docs/TESTING.md](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/TESTING.md)
-describes, then drive `login` and two `token` requests — the ARM gateway bearer token, and the
-session-host proof-of-possession token with a confirmation blob — from another terminal on that bus.
+describes, then drive `login` and two `token` requests, the ARM gateway bearer token and the
+session-host proof-of-possession token with a confirmation blob, from another terminal on that bus.
 
-Two runs on 2026-09-05 are what this client has been proven by:
+The two runs of 2026-09-05 that this client has been proven by are described in
+[README.md](../README.md). What to check when repeating them:
 
-- **10:42.** A live sign-in against a US Government tenant. The portal window reached Entra,
-  `certauth` challenged for a client certificate, WebKit's network process resolved it through the
-  certificate portal's PKCS#11 module, the shell prompted for the PIN, the card signed with RSA-PSS,
-  and the completion navigation was intercepted with the authorization code captured. Expect two
-  certificate choosers and one PIN prompt; a third chooser is a regression.
-- **14:21.** The whole chain: an sdl-freerdp fork branch, this client, both portals, the card, and
-  an Azure Virtual Desktop session. Real tokens were exchanged. The ARM gateway token came from the
-  keyring cache — `cache outcome=hit`, and no `token-request` line at all. The RDS
-  proof-of-possession token needed one interactive re-authentication through the portal window,
-  which the tenant's Conditional Access policy explains: the interstitial run 4 forces with the
-  mock, happening for real.
+- **10:42**, the live sign-in. Expect two certificate choosers and one PIN prompt; a third chooser
+  is a regression.
+- **14:21**, the whole chain. The ARM gateway token must come from the keyring cache:
+  `cache outcome=hit`, and no `token-request` line at all. The RDS proof-of-possession token's interactive
+  re-authentication is the interstitial that run 4 forces with the mock, happening for real.
 
 What to watch in `--verbose`: `authorize authority=... tenant=<hash> pop=no` (the tenant is logged
-as a hash, never the URL), `portal outcome=COMPLETED`, `callback outcome=CODE` — `UNRELATED` or
-`INVALID` here is the interesting failure — `token-request grant=authorization_code`, then
-`keyring outcome=stored`.
+as a hash, never the URL), `portal outcome=COMPLETED`, `callback outcome=CODE`, `token-request
+grant=authorization_code`, then `keyring outcome=stored`. `UNRELATED` or `INVALID` from the
+classifier is the interesting failure.
 
 As of those runs, the correct description of this client is "it works against a mock, and against a
-real Entra ID tenant through a proof-of-concept FreeRDP fork". Still unanswered: a second card, a
-PIN-pad reader, card removal mid-operation, KDE, a Flatpak runtime, a second tenant, and whether a
-refresh token survives long enough to make the silent path worth having.
+real Entra ID tenant through a proof-of-concept FreeRDP fork". What is still unexercised is listed
+in [README.md](../README.md), and a second tenant belongs on that list.

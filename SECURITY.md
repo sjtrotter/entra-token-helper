@@ -1,7 +1,7 @@
 # Security
 
-This is `entra-token-helper`, an Entra ID / Azure Virtual Desktop token client. It holds refresh
-tokens, so what it gets wrong is worth reporting.
+`entra-token-helper` is an Entra ID / Azure Virtual Desktop token client ([README.md](README.md)).
+It holds refresh tokens, so what it gets wrong is worth reporting.
 
 **Nothing is released, and there is no deployment to report a vulnerability against.** The client is
 implemented and has been run against a real Entra ID tenant and a real card
@@ -19,7 +19,7 @@ The interesting parts:
 
 - **The callback classifier**, `src/oauth/callback.c`. The portal guarantees only that a URI matched
   the completion URI it was given; whether that URI is *this transaction's* authorization response
-  is decided here — exact scheme, host, port and path, no userinfo, no fragment, `state` compared in
+  is decided here: exact scheme, host, port and path, no userinfo, no fragment, `state` compared in
   constant time, exactly one of `code` or `error`, strict percent-decoding.
 - **The account store**, `src/cache/keyring.c`. One Secret Service item per authority, client id and
   account. The refresh token is the thing in it that is months of standing access.

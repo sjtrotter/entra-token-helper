@@ -5,20 +5,19 @@ Status: accepted
 
 ## Context
 
-`sso-mib` already exists, is already integrated in FreeRDP behind `WITH_SSO_MIB`, and already
-obtains AVD tokens. It does so by talking over D-Bus to the Microsoft Identity Broker, a service
-Microsoft ships for Intune-enrolled Linux devices which holds a device-bound primary refresh
-token (PRT).
+`sso-mib`, the Microsoft Identity Broker and the device-bound primary refresh token (PRT) are
+described in [README.md](../../README.md). `sso-mib` is already integrated in FreeRDP behind
+`WITH_SSO_MIB` and already obtains AVD tokens through the broker.
 
 The tempting shortcut is obvious: implement the broker's D-Bus name and object paths in this
 token client. Then every existing `sso-mib` caller — including FreeRDP as it stands today, with no
 integration work at all — would silently start using us on non-enrolled devices.
 
-The apparent justification is that MS-OAPXBC is a published Microsoft specification. It is not a
-justification. MS-OAPXBC specifies the *OAuth protocol extensions* a broker client uses and the
-associated token exchanges; it does not define Microsoft's Linux D-Bus service ABI. `sso-mib`
-itself carries its own D-Bus descriptions, reverse-engineered rather than standardised, and its
-own public API is not guaranteed stable before 1.0.
+The apparent justification is that MS-OAPXBC is a published Microsoft specification. It is not one:
+MS-OAPXBC specifies the *OAuth protocol extensions* a broker client uses and the associated token
+exchanges, not Microsoft's Linux D-Bus service ABI. `sso-mib` carries its own D-Bus descriptions,
+reverse-engineered rather than standardised, and its public API is not guaranteed stable before
+1.0.
 
 ## Decision
 
