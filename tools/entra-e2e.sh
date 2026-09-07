@@ -53,7 +53,8 @@
 #
 #   Xvfb        xorg-x11-server-Xvfb           $XVFB
 #   $XDP_BUILD  a built frontend, as tools/dev-stack.sh describes
-#   $BACKEND    this repository's backend
+#   $WEBAUTH_REPO  a checkout of xdg-desktop-portal-webauth (default: sibling directory)
+#   $BACKEND    that repository's built backend
 #   $HELPER     this repository's client
 #
 #     tools/entra-e2e.sh
@@ -66,8 +67,9 @@ here() { cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd; }
 REPO="$(here)"
 
 XDP_BUILD="${XDP_BUILD:-$REPO/../xdg-desktop-portal/build}"
-BACKEND="${BACKEND:-$REPO/build-backend/src/xdg-desktop-portal-webauth}"
-HELPER="${HELPER:-$REPO/build-entra/entra-token-helper}"
+WEBAUTH_REPO="${WEBAUTH_REPO:-$REPO/../xdg-desktop-portal-webauth}"
+BACKEND="${BACKEND:-$WEBAUTH_REPO/build/src/xdg-desktop-portal-webauth}"
+HELPER="${HELPER:-$REPO/build/entra-token-helper}"
 XDP_ENV="${XDP_ENV:-$REPO/.xdp-env}"
 XVFB="${XVFB:-$(command -v Xvfb || true)}"
 SCREEN="${SCREEN:-:94}"
@@ -119,8 +121,8 @@ command -v python3 >/dev/null || die "python3 not found"
 command -v openssl >/dev/null || die "openssl not found"
 command -v dbus-run-session >/dev/null || die "dbus-run-session not found"
 [ -n "$XVFB" ] || die "Xvfb not found; set \$XVFB"
-[ -x "$BACKEND" ] || die "no backend at $BACKEND; set BACKEND"
-[ -x "$HELPER" ] || die "no client at $HELPER; run 'meson setup build-entra clients/entra && ninja -C build-entra' or set HELPER"
+[ -x "$BACKEND" ] || die "no backend at $BACKEND; build xdg-desktop-portal-webauth or set BACKEND / WEBAUTH_REPO"
+[ -x "$HELPER" ] || die "no client at $HELPER; run 'meson setup build && ninja -C build' or set HELPER"
 [ -x "$XDP_BUILD/desktop-portal/xdg-desktop-portal" ] || die "no frontend; set XDP_BUILD"
 [ -x "$XDP_BUILD/document-portal/xdg-permission-store" ] || die "no permission store; set XDP_BUILD"
 
@@ -131,7 +133,7 @@ fi
 
 DEVDIR="$LOGDIR/portals"
 (umask 077 && mkdir -p "$DEVDIR")
-xdp_write_portal_dir "$DEVDIR" "$REPO" private
+xdp_write_portal_dir "$DEVDIR" "$WEBAUTH_REPO" private
 
 # The mock authority's certificate. Throwaway, and nothing on the machine trusts
 # it -- correctly. Two things are told to: the backend, for the web view, with
@@ -443,7 +445,7 @@ export SECRET_FILE_TEST_PATH="$LOGDIR/keyring"
 export SECRET_FILE_TEST_PASSWORD="entra-e2e-fixture"
 rm -f "$SECRET_FILE_TEST_PATH"
 
-export LOGDIR REPO XDP_BUILD BACKEND HELPER TENANT ACCOUNT SCOPE POP_SCOPE REQ_CNF KEEP VERBOSE
+export LOGDIR REPO XDP_BUILD WEBAUTH_REPO BACKEND HELPER TENANT ACCOUNT SCOPE POP_SCOPE REQ_CNF KEEP VERBOSE
 export pass fail
 
 dbus-run-session -- bash -c "

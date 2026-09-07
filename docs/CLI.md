@@ -7,16 +7,17 @@ exercised end to end against a mock authority (`tools/entra-e2e.sh`), and, on 20
 real Entra ID tenant: a live sign-in at 10:42 and the full FreeRDP-to-AVD chain at 14:21, with one
 interactive re-auth for the RDS proof-of-possession token.
 
-This is the contract for **layer 3**, the Entra ID / AVD token client — the interface FreeRDP
-frontends and other programs are expected to depend on. Layer 2, the web authentication portal the
-client calls when it needs a window, has its own contract in
-[PUBLIC-INTERFACE.md](PUBLIC-INTERFACE.md); the two are independent and versioned separately.
+This is the contract for `entra-token-helper`, the Entra ID / AVD token client — the interface
+FreeRDP frontends and other programs are expected to depend on. The web authentication portal the
+client calls when it needs a window has its own contract, in its own project:
+[PUBLIC-INTERFACE.md](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/PUBLIC-INTERFACE.md).
+The two are independent and versioned separately.
 
 The client calls xdg-desktop-portal, on `org.freedesktop.portal.Desktop`, and nothing
 else. That the portal is internally a frontend and a backend
-([decisions/0008](decisions/0008-build-to-the-upstream-shape.md)) is invisible here: no verb, exit
-code or field below changed when the split was made, and none would change again if a machine
-installed a different backend.
+([decisions/0008](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/decisions/0008-build-to-the-upstream-shape.md))
+is invisible here: no verb, exit code or field below changed when the split was made, and none would
+change again if a machine installed a different backend.
 
 It is versioned: the JSON objects carry `"schema": 1`, and the compatibility promise at the end of
 this document says what may change without a bump.
@@ -205,7 +206,7 @@ The secret is a JSON record holding the refresh token, the ID token, and the acc
 under the sorted scope set. The refresh token is the only thing in it that is months of standing
 access; the access token is in there too because the CLI is a one-shot process and an in-memory
 cache would live for the length of one call. Neither is ever written to a file, a log, or the JSON
-response. See [SECURITY.md](SECURITY.md).
+response. See [SECURITY.md](../SECURITY.md).
 
 ## Request / response schema
 
@@ -245,7 +246,7 @@ the same payload.
 - Fields a caller may **not** set, in any transport: token endpoint, authorization endpoint,
   redirect URI, or any URL at all. The client derives every URL from the authority and its own
   cloud table, and it is the client — not its caller — that gives the portal its `completion_uri`.
-  See [SECURITY.md](SECURITY.md).
+  See [SECURITY.md](../SECURITY.md).
 
 ### Response
 
@@ -317,7 +318,8 @@ project has acquired a single real token, the schema should be considered provis
 
 The portal interface version is separate. A caller of this CLI never sees it, and the client is
 expected to work against anything implementing version 1 of
-[`org.freedesktop.portal.experimental.WebAuthentication`](PUBLIC-INTERFACE.md) — including, one day, a
-desktop-native backend rather than this project's own, or the frontend having moved into
-xdg-desktop-portal entirely ([UPSTREAMING.md](UPSTREAMING.md)). The backend interface version is
-separate again and is nobody's business here.
+[`org.freedesktop.portal.experimental.WebAuthentication`](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/PUBLIC-INTERFACE.md)
+— including, one day, a desktop-native backend rather than that project's own, or the frontend
+having moved into xdg-desktop-portal entirely
+([UPSTREAMING.md](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/UPSTREAMING.md)).
+The backend interface version is separate again and is nobody's business here.

@@ -5,7 +5,7 @@
 #
 # This is a COMPLETE, STANDALONE meson project. It can be built on its own:
 #
-#     meson setup build-entra clients/entra && ninja -C build-entra
+#     meson setup build && ninja -C build
 #
 # It depends on the web authentication portal only over D-Bus, at run time, and
 # only for interactive sign-in. There is no build-time dependency in either

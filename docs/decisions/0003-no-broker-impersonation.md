@@ -24,10 +24,10 @@ own public API is not guaranteed stable before 1.0.
 
 Do not take, implement, or shadow Microsoft's Identity Broker D-Bus name. Use a new, narrowly
 scoped interface — for the token client, the contract in
-[ENTRA-CLIENT-CLI.md](../ENTRA-CLIENT-CLI.md); for web authentication,
+[CLI.md](../CLI.md); for web authentication,
 `org.freedesktop.portal.experimental.WebAuthentication`, summarised in
-[PUBLIC-INTERFACE.md](../PUBLIC-INTERFACE.md) and defined by the xdg-desktop-portal branch
-([0010](0010-backend-only-frontend-lives-upstream.md)). Note that this ADR's argument is about
+[PUBLIC-INTERFACE.md](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/PUBLIC-INTERFACE.md) and defined by the xdg-desktop-portal
+branch ([0010](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/decisions/0010-backend-only-frontend-lives-upstream.md)). Note that this ADR's argument is about
 *impersonating somebody else's* bus name, and is untouched by which namespace our own interface
 ends up in.
 
@@ -54,7 +54,7 @@ ends up in.
 **Costs accepted.**
 
 - Integration work is required that impersonation would have avoided: a callback shim in each
-  client, or the typed provider API proposed in [ROADMAP.md](../ROADMAP.md).
+  client, or the typed provider API proposed in [ROADMAP.md](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/ROADMAP.md).
 - Two providers exist rather than one, and something has to dispatch between them. That is the
   right shape: try the broker first (it is better where it applies, because a PRT is stronger than
   a browser session), fall through to this token client, fall through to the frontend callback, fall
@@ -64,7 +64,7 @@ ends up in.
 **A related caution, which turned out to apply twice.** The same reasoning governs naming
 generally: nothing here should be named or described in a way that implies an endorsement or a
 semantics it does not have. That is the argument against impersonating Microsoft's broker, and it is
-exactly the argument in [0005](0005-service-shape.md) against shipping an
+exactly the argument in [0005](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/decisions/0005-service-shape.md) against shipping an
 `org.freedesktop.portal.*` name before anyone has accepted one. The token client is a browser-based
 sign-in path for non-enrolled devices; the service is an incubating project-controlled interface;
 the documentation should keep saying both.

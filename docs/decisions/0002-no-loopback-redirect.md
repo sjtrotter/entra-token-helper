@@ -59,7 +59,7 @@ is on a different host from the one it is showing.
   The redirect URL carries the authorization code in its query string; letting the web view fetch
   it would send the code to a remote Microsoft-operated page that has no part in this exchange,
   and would show the user a page flash that means nothing.
-- The strict redirect classifier described in [SECURITY.md](../SECURITY.md) is not
+- The strict redirect classifier described in [SECURITY.md](../../SECURITY.md) is not
   belt-and-braces. Because our expected redirect is a real, remote, commercial-cloud HTTPS URL
   rather than a loopback socket only we can bind, "did this navigation come from the authorization
   server" is a question we must answer by inspection: exact scheme/host/port/path match, no

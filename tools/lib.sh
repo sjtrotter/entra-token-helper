@@ -423,7 +423,7 @@ xdp_conf_set() {
 }
 
 # xdp_write_portal_dir DIR REPO [MODE] -- fill DIR with every .portal on the
-# machine, this repository's webauth.portal, and the flattened portals.conf.
+# machine, the webauth backend repository's webauth.portal, and the flattened portals.conf.
 # MODE is "private" (the default) or "live".
 xdp_write_portal_dir() {
 	local dir="$1" repo="$2" mode="${3:-private}" source_dir base found
@@ -446,7 +446,7 @@ xdp_write_portal_dir() {
 	# The comments are stripped so the file is readable in the log; the
 	# installed one keeps them.
 	rm -f -- "$dir/webauth.portal"
-	sed -e '/^#/d' -e '/^$/d' "$repo/backend/data/webauth.portal.in" >"$dir/webauth.portal"
+	sed -e '/^#/d' -e '/^$/d' "$repo/data/webauth.portal.in" >"$dir/webauth.portal"
 
 	# Written as plain portals.conf rather than <desktop>-portals.conf because
 	# that name is the frontend's fallback and is read whatever

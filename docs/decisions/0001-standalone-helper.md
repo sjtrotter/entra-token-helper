@@ -36,7 +36,8 @@ Build standalone, per-user processes in their own project, with versioned contra
 IPC from day one.
 
 (This decision predates the split into two layers recorded in
-[0005](0005-service-shape.md) and [0006](0006-two-repositories.md). What follows is the reasoning
+[0005](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/decisions/0005-service-shape.md) and
+[0006](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/decisions/0006-two-repositories.md). What follows is the reasoning
 for *not putting this work inside FreeRDP or inside one RDP client*, and it still applies to both
 layers; the boundary between them is 0005's subject, not this one's.)
 
@@ -72,9 +73,9 @@ and chains to the saved one on decline — exactly the pattern `sso-mib` already
 - More things to package, install and version. A client without them installed must degrade
   gracefully — hence exit code `40` (provider unavailable) and the retained terminal paste flow.
 - The contracts are now public and must be kept. That is the point of
-  [ENTRA-CLIENT-CLI.md](../ENTRA-CLIENT-CLI.md), of
-  [PUBLIC-INTERFACE.md](../PUBLIC-INTERFACE.md), and of their version numbers.
+  [CLI.md](../CLI.md), of
+  [PUBLIC-INTERFACE.md](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/PUBLIC-INTERFACE.md), and of their version numbers.
 - The token client is one-shot, so per-account serialization has to be a lock in the runtime
   directory rather than a queue in memory. The related worry — keeping a browser session warm
   across connections — turned out to belong to layer 1, which is D-Bus-activated and long-lived
-  anyway. See [ARCHITECTURE.md](../ARCHITECTURE.md).
+  anyway. See [ARCHITECTURE.md](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/ARCHITECTURE.md).
