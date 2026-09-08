@@ -109,14 +109,12 @@ static void eth_usage(FILE* out)
 	        "  on " ENTRA_PORTAL_BUS_NAME " at " ENTRA_PORTAL_OBJECT_PATH ".\n"
 	        "  This client calls the portal and never a backend.\n"
 	        "\n"
-	        "  That interface is EXPERIMENTAL and is not exported unless the portal was\n"
-	        "  started with\n"
-	        "    XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL=" ENTRA_PORTAL_EXPERIMENTAL_FLAG "\n"
-	        "  With the gate off the interface is absent entirely, and an interactive\n"
-	        "  request exits 40 (unavailable) saying so, so that a dispatcher can fall\n"
-	        "  through to another provider -- FreeRDP's terminal paste flow, say. The\n"
-	        "  same 40 covers a portal with the gate on but no backend installed, which\n"
-	        "  is indistinguishable by design.\n");
+	        "  That interface is EXPERIMENTAL and is not exported unless the portal has\n"
+	        "  a backend configured for it. With none configured the interface is absent\n"
+	        "  entirely, and an interactive request exits 40 (unavailable) saying so, so\n"
+	        "  that a dispatcher can fall through to another provider -- FreeRDP's\n"
+	        "  terminal paste flow, say. The same 40 covers no portal at all, which is\n"
+	        "  indistinguishable by design.\n");
 }
 
 static EthVerb eth_verb_from_string(const char* s)

@@ -107,7 +107,7 @@ For `accounts --json`, and for `login --json` and `logout --json`, the object ca
 | `10` | interaction required | An interactive transaction would have been needed and `--prompt never` was given. The caller may retry with `--prompt auto`. Not an error condition; it is the documented way to ask "can you do this silently?" |
 | `20` | cancelled | The portal responded `1`: the user closed the sign-in window, or cancelled the certificate chooser or the PIN prompt. A caller should **not** immediately retry interactively. The user just said no. |
 | `30` | no such account | No account matched, `--account` named one that is not stored, or more than one matched and none was named. The caller should run `login`. |
-| `40` | provider unavailable | The client cannot do its job in this environment: `org.freedesktop.portal.experimental.WebAuthentication` is not exported, so there is nothing to call for an interactive request. **That is the default state of a machine**: the interface is experimental and absent unless xdg-desktop-portal was started with `XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL=web-authentication`. The same code covers a portal with the gate on but no backend configured (it exports nothing either), no session bus, no Secret Service keyring, and an authority that cannot be reached at all, indistinguishable by design. **The message names the environment variable**, because on a developer's machine that is almost always what is wrong. A dispatcher should treat this as "decline" and fall through to the next provider (e.g. FreeRDP's terminal paste flow). |
+| `40` | provider unavailable | The client cannot do its job in this environment: `org.freedesktop.portal.WebAuthentication.X1` is not exported on `/org/freedesktop/portal/desktop/experimental`, so there is nothing to call for an interactive request. **That is the default state of a machine**: the interface is experimental and absent unless xdg-desktop-portal found a backend configured for it. The same code covers no session bus, no Secret Service keyring, and an authority that cannot be reached at all, indistinguishable by design. **The message names the interface and the object path**, because on a developer's machine a missing backend is almost always what is wrong. A dispatcher should treat this as "decline" and fall through to the next provider (e.g. FreeRDP's terminal paste flow). |
 | `50` | authorization server error | The authority refused for a reason a window will not fix: a bad client, a bad request, a server fault. The details are on stderr, redacted to the OAuth error code. |
 | `64` | usage | Bad arguments. (`64` is `EX_USAGE` from `sysexits.h`.) |
 | `70` | internal | An unexpected failure in the client itself, including a portal `Response` of `2` for a reason other than unavailability, such as a timeout or a `backend_completion_mismatch`, and a completion URI that failed the callback classifier. (`70` is `EX_SOFTWARE`.) |
@@ -130,7 +130,7 @@ and exit `10` when it does not.
    failed fetch is a DEBUG line and the derived endpoints stand.
 2. Builds the authorization URL: `response_type=code`, PKCE `S256`, a fresh 256-bit `state`,
    `prompt=select_account` (`login` under `--prompt always`), and the nativeclient redirect.
-3. Calls `org.freedesktop.portal.experimental.WebAuthentication.Start` with the completion URI set
+3. Calls `org.freedesktop.portal.WebAuthentication.X1.Start` with the completion URI set
    to that same redirect, having subscribed to the `Response` signal first so a fast completion
    cannot race the subscription.
 4. Classifies what comes back (see below) and exchanges the code with the verifier.
@@ -316,7 +316,7 @@ project has acquired a single real token, the schema should be considered provis
 
 The portal interface version is separate. A caller of this CLI never sees it, and the client is
 expected to work against anything implementing version 1 of
-[`org.freedesktop.portal.experimental.WebAuthentication`](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/PUBLIC-INTERFACE.md)
+[`org.freedesktop.portal.WebAuthentication.X1`](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/PUBLIC-INTERFACE.md)
 including, one day, a desktop-native backend rather than that project's own, or the frontend
 having moved into xdg-desktop-portal entirely
 ([UPSTREAMING.md](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/UPSTREAMING.md)).

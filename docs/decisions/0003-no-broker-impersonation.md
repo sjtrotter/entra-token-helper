@@ -24,7 +24,7 @@ reverse-engineered rather than standardised, and its public API is not guarantee
 Do not take, implement, or shadow Microsoft's Identity Broker D-Bus name. Use a new, narrowly
 scoped interface — for the token client, the contract in
 [CLI.md](../CLI.md); for web authentication,
-`org.freedesktop.portal.experimental.WebAuthentication`, summarised in
+`org.freedesktop.portal.WebAuthentication.X1`, summarised in
 [PUBLIC-INTERFACE.md](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/PUBLIC-INTERFACE.md) and defined by the xdg-desktop-portal
 branch ([0010](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/decisions/0010-backend-only-frontend-lives-upstream.md)). Note that this ADR's argument is about
 *impersonating somebody else's* bus name, and is untouched by which namespace our own interface

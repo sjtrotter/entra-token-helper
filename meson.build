@@ -122,9 +122,9 @@ summary(
 
 summary(
   {
-    'public interface called': 'org.freedesktop.portal.experimental.WebAuthentication',
+    'public interface called': 'org.freedesktop.portal.WebAuthentication.X1',
     'on': 'org.freedesktop.portal.Desktop',
-    'frontend gate': 'XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL=web-authentication',
+    'object path': '/org/freedesktop/portal/desktop/experimental',
     'backends known to this program': 'none, by design',
     'redirect (both clouds)': 'https://login.microsoftonline.com/common/oauth2/nativeclient',
     'account store': 'Secret Service, schema io.github.sjtrotter.entra-token-helper',

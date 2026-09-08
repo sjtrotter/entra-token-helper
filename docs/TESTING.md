@@ -44,8 +44,7 @@ $ WEBAUTH_REPO=../xdg-desktop-portal-webauth XDP_BUILD=../xdg-desktop-portal/bui
 `--keep` leaves the stack up and prints the configuration file and the authority it wrote;
 `--verbose` adds the client's own redacted breadcrumbs.
 
-It puts `xdg-permission-store`, the frontend with
-`XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL=web-authentication`, the backend with **no certificate
+It puts `xdg-permission-store`, the frontend, the backend with **no certificate
 adapter**, and `tools/mock-token-endpoint.py` on one private bus inside one headless X server, and
 runs the client against them as an ordinary application calling the public interface. The keyring is
 libsecret's file backend, so no daemon and no unlock prompt are involved.
@@ -67,7 +66,7 @@ The seven runs:
 | 4 | `token --req-cnf`: the mock refuses the PoP refresh with `interaction_required`, the client opens the window again with no `prompt` parameter, exchanges a fresh code with `token_type=pop` and `req_cnf`, and the token comes back carrying the caller's confirmation blob |
 | 5 | `token --req-cnf` again: the authority is called again, because a PoP token is never cached |
 | 6 | `logout`: nothing is listed afterwards, and a silent request exits `30` rather than opening a window |
-| 7 | No portal at all: exit `40`, with the message naming the environment variable |
+| 7 | No portal at all: exit `40`, with the message naming the interface |
 
 A final check greps the client's stderr for anything that must never be written down.
 

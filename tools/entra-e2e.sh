@@ -13,8 +13,8 @@
 # WHAT IT STANDS UP, all on ONE private bus inside ONE headless X server:
 #
 #   xdg-permission-store          the frontend refuses to start without it
-#   xdg-desktop-portal            the development frontend, ONE gate on:
-#                                 XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL=web-authentication
+#   xdg-desktop-portal            the development frontend, with the web
+#                                 authentication interface backed in portals.conf
 #   xdg-desktop-portal-webauth    this repository's backend, NO certificate
 #                                 adapter: the mock authority asks for no card,
 #                                 so this run is about the client and not about
@@ -373,15 +373,15 @@ EOF
 
 	echo
 	echo "=== 7. no portal at all ==="
-	# The gate off is the DEFAULT STATE OF A MACHINE, and a dispatcher has to be
-	# able to tell it from a refusal. Asked here with no session bus at all,
-	# which the client is required to answer the same way.
+	# No backend configured is the DEFAULT STATE OF A MACHINE, and a dispatcher
+	# has to be able to tell it from a refusal. Asked here with no session bus at
+	# all, which the client is required to answer the same way.
 	env -u DBUS_SESSION_BUS_ADDRESS "$HELPER" login "${common[@]}" --scope "$SCOPE" \
 		>"$LOGDIR/nobus.out" 2>"$LOGDIR/nobus.err"
 	rc=$?
 	check "no bus exits 40" "$([ "$rc" = 40 ] && echo 0 || echo 1)"
-	check_grep "and the message names the gate" "$LOGDIR/nobus.err" \
-		'XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL=web-authentication'
+	check_grep "and the message names the interface" "$LOGDIR/nobus.err" \
+		'org.freedesktop.portal.WebAuthentication.X1'
 
 	echo
 	echo "=== what nobody was allowed to write down ==="
@@ -432,7 +432,6 @@ export GTK_A11Y=none
 export ADW_DEBUG_COLOR_SCHEME="${ADW_DEBUG_COLOR_SCHEME:-prefer-dark}"
 
 export XDG_DESKTOP_PORTAL_DIR="$DEVDIR"
-export XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL=web-authentication
 export XDG_CURRENT_DESKTOP="${XDG_CURRENT_DESKTOP:-dev}"
 export XDG_DATA_HOME="$LOGDIR/data-home"
 mkdir -p "$XDG_DATA_HOME"
