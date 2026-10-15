@@ -44,9 +44,9 @@ static void entra_webauth_set_unavailable(GError** error)
 	g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_UNAVAILABLE,
 	                    "the web authentication portal is not available.\n"
 	                    "  " ENTRA_PORTAL_INTERFACE "\n"
-	                    "  is experimental and is not exported on " ENTRA_PORTAL_OBJECT_PATH
-	                    "\n"
-	                    "  unless xdg-desktop-portal has a backend configured for it.\n"
+	                    "  is experimental and is exported on " ENTRA_PORTAL_OBJECT_PATH "\n"
+	                    "  only when xdg-desktop-portal has a backend configured for it and\n"
+	                    "  was started with XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL=WebAuthentication1.\n"
 	                    "  The same answer covers no portal and no session bus at all.");
 }
 

@@ -17,7 +17,7 @@ PKCE, the authorization-code exchange, the refresh grant, proof-of-possession to
 bound to a key the caller holds, so a copy taken from the wire is useless on its own), and an
 account store in the Secret Service, the freedesktop D-Bus secret-storage API that GNOME Keyring
 and KWallet implement. It asks xdg-desktop-portal to draw the sign-in window through the
-experimental `org.freedesktop.portal.WebAuthentication.X1` interface. The portal, not this
+experimental `org.freedesktop.portal.experimental.WebAuthentication1` interface. The portal, not this
 program, hosts the web engine; with the companion certificate portal behind it, that window answers
 a smart-card TLS client-certificate challenge. This client calls the portal and nothing else, and
 does not know which backend serves it.
@@ -35,7 +35,7 @@ Last checked 2026-09-07.
 | Interactive sign-in through the portal | Implemented (`src/webauth_client.c`) |
 | Sign-in against a real identity provider, with a smart card | Proven 2026-09-05 (below) |
 | The full FreeRDP-to-AVD chain | Proven 2026-09-05, through a fork-only proof of concept |
-| A portal exporting the interface | Required: an experimental branch of xdg-desktop-portal, with a backend configured as described below |
+| A portal exporting the interface | Required: the integration branch of xdg-desktop-portal, with frontend opt-in and a configured backend as described below |
 | Integration with FreeRDP's helper protocol ([#13340](https://github.com/FreeRDP/FreeRDP/pull/13340)) | Not implemented |
 | Proposed anywhere | No. No issue and no pull request, for this client or for the portals it uses |
 | Packaging, a release, an independent security review | Not done |
@@ -63,14 +63,14 @@ card, a PIN-pad reader, card removal mid-operation, KDE and a Flatpak runtime we
        OAuth: PKCE, the code exchange, the refresh grant, proof-of-possession,
        the account store. No window, no web engine, no card.
        |
-       |  org.freedesktop.portal.WebAuthentication.X1
+       |  org.freedesktop.portal.experimental.WebAuthentication1
        v  on org.freedesktop.portal.Desktop,
-       |  at /org/freedesktop/portal/desktop/experimental
+       |  at /org/freedesktop/portal/desktop
   xdg-desktop-portal                            an experimental branch of that project
        derives the app id, validates both URIs, filters the options, and
        guarantees one Response.
        |
-       |  org.freedesktop.impl.portal.WebAuthentication.X1
+       |  org.freedesktop.impl.portal.experimental.WebAuthentication1
        v
   xdg-desktop-portal-webauth                    SEPARATE REPOSITORY
        the GTK4 + WebKitGTK window, the security chrome, the storage partition,
@@ -82,10 +82,15 @@ card, a PIN-pad reader, card removal mid-operation, KDE and a Flatpak runtime we
        the certificate chooser, the PIN prompt, the signing key on the card.
 ```
 
-Experimental portals live on their own object path, and are exported only when a backend for them
-is configured: unless xdg-desktop-portal found one, the interface is not exported, and a request
-needing a window exits `40` saying so. Cached tokens and account management do not need the
-portal.
+Experimental portals use `/org/freedesktop/portal/desktop`. The frontend exports them only when
+their names appear in its `XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL` environment variable and
+their backends are configured. Use `WebAuthentication1,Certificate1` for sign-in with the
+certificate portal (`org.freedesktop.portal.experimental.Certificate1`, backend
+`org.freedesktop.impl.portal.experimental.Certificate1`). The list is comma separated without
+spaces. Breaking changes increment the trailing interface number.
+
+A request needing an unavailable interface exits `40` with the interface name and the required
+frontend opt-in and backend. Cached tokens and account management do not need the portal.
 
 ## The CLI
 
@@ -143,7 +148,10 @@ $ WEBAUTH_REPO=../xdg-desktop-portal-webauth XDP_BUILD=../xdg-desktop-portal/bui
 
 It stands up `xdg-permission-store`, the frontend, the webauth backend and
 `tools/mock-token-endpoint.py`, an Entra-shaped authority, on one private bus inside one headless
-X server, then drives seven runs against them. The assertions are lines the mock's event log wrote,
+X server, then drives seven runs against them. It appends missing `WebAuthentication1` and
+`Certificate1` entries to `XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL` for the frontend.
+For a development frontend on the session bus, see [docs/CLI.md](docs/CLI.md#development-frontend).
+The assertions are lines the mock's event log wrote,
 not inferences from exit codes. [docs/TESTING.md](docs/TESTING.md) has the rest.
 
 ## Relationship to FreeRDP

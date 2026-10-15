@@ -279,6 +279,19 @@ fixture_mktemp() {
 # and the portals.conf is the machine's EFFECTIVE configuration flattened into
 # one file, with one line replaced for this backend.
 
+# Enable both experimental portals in the frontend's environment.
+xdp_enable_experimental() {
+	local name
+
+	for name in WebAuthentication1 Certificate1; do
+		case ",${XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL:-}," in
+		*,"$name",*) ;;
+		*) XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL="${XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL:+$XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL,}$name" ;;
+		esac
+	done
+	export XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL
+}
+
 # xdp_data_dirs -- $XDG_DATA_HOME then $XDG_DATA_DIRS, in the frontend's order.
 xdp_data_dirs() {
 	local dirs
@@ -465,7 +478,7 @@ xdp_write_portal_dir() {
 	# Named explicitly rather than through default=, so that the frontend's log
 	# line names the interface this backend implements.
 	xdp_conf_set "$dir/portals.conf" \
-		org.freedesktop.impl.portal.WebAuthentication.X1 'webauth;'
+		org.freedesktop.impl.portal.experimental.WebAuthentication1 'webauth;'
 
 	# ON A PRIVATE BUS, NOTHING OWNS org.freedesktop.secrets. The frontend
 	# builds its Secret proxy at start-up and D-Bus activation on a bus with no

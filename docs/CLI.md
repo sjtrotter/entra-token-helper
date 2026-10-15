@@ -107,7 +107,7 @@ For `accounts --json`, and for `login --json` and `logout --json`, the object ca
 | `10` | interaction required | An interactive transaction would have been needed and `--prompt never` was given. The caller may retry with `--prompt auto`. Not an error condition; it is the documented way to ask "can you do this silently?" |
 | `20` | cancelled | The portal responded `1`: the user closed the sign-in window, or cancelled the certificate chooser or the PIN prompt. A caller should **not** immediately retry interactively. The user just said no. |
 | `30` | no such account | No account matched, `--account` named one that is not stored, or more than one matched and none was named. The caller should run `login`. |
-| `40` | provider unavailable | The client cannot do its job in this environment: `org.freedesktop.portal.WebAuthentication.X1` is not exported on `/org/freedesktop/portal/desktop/experimental`, so there is nothing to call for an interactive request. **That is the default state of a machine**: the interface is experimental and absent unless xdg-desktop-portal found a backend configured for it. The same code covers no session bus, no Secret Service keyring, and an authority that cannot be reached at all, indistinguishable by design. **The message names the interface and the object path**, because on a developer's machine a missing backend is almost always what is wrong. A dispatcher should treat this as "decline" and fall through to the next provider (e.g. FreeRDP's terminal paste flow). |
+| `40` | provider unavailable | `org.freedesktop.portal.experimental.WebAuthentication1` is unavailable on `/org/freedesktop/portal/desktop`. The frontend must be started with `XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL=WebAuthentication1` and a WebAuthentication backend configured. The diagnostic on stderr names the interface, path, opt-in and backend requirement. The same code covers no session bus, no Secret Service keyring, and an unreachable authority. A dispatcher should treat this as "decline" and fall through to the next provider. |
 | `50` | authorization server error | The authority refused for a reason a window will not fix: a bad client, a bad request, a server fault. The details are on stderr, redacted to the OAuth error code. |
 | `64` | usage | Bad arguments. (`64` is `EX_USAGE` from `sysexits.h`.) |
 | `70` | internal | An unexpected failure in the client itself, including a portal `Response` of `2` for a reason other than unavailability, such as a timeout or a `backend_completion_mismatch`, and a completion URI that failed the callback classifier. (`70` is `EX_SOFTWARE`.) |
@@ -130,7 +130,7 @@ and exit `10` when it does not.
    failed fetch is a DEBUG line and the derived endpoints stand.
 2. Builds the authorization URL: `response_type=code`, PKCE `S256`, a fresh 256-bit `state`,
    `prompt=select_account` (`login` under `--prompt always`), and the nativeclient redirect.
-3. Calls `org.freedesktop.portal.WebAuthentication.X1.Start` with the completion URI set
+3. Calls `org.freedesktop.portal.experimental.WebAuthentication1.Start` with the completion URI set
    to that same redirect, having subscribed to the `Response` signal first so a fast completion
    cannot race the subscription.
 4. Classifies what comes back (see below) and exchanges the code with the verifier.
@@ -278,6 +278,32 @@ behaviour is set by process environment is hard for an embedding client to contr
 environment variable is an easy thing for a hostile parent to set. In particular there is no
 environment variable that widens an allowlist or trusts a certificate.
 
+## Development frontend
+
+Use the `experimental/integration` branch of `sjtrotter/xdg-desktop-portal` with a
+configured WebAuthentication backend. The interface is
+`org.freedesktop.portal.experimental.WebAuthentication1` on
+`/org/freedesktop/portal/desktop`, bus name `org.freedesktop.portal.Desktop`.
+Request and Session objects retain their `/request/...` and `/session/...` handle
+paths under `/org/freedesktop/portal/desktop`.
+
+Start it on the session bus from a checkout of `xdg-desktop-portal-webauth`:
+
+```bash
+tools/dev-stack.sh --live --keep --no-e2e
+```
+
+That script replaces the session's frontend with the built one, keeps every
+installed `.portal` file and the effective `portals.conf` (so other portals keep
+working), routes `org.freedesktop.impl.portal.experimental.WebAuthentication1` to
+the webauth backend, and starts the frontend with `WebAuthentication1` added to
+`XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL`. The variable must be in the frontend's
+environment at startup; setting it only for the client has no effect. For the
+certificate portal as well, use that repository's `tools/portal-stack.sh --live`.
+
+Run `entra-token-helper login` from another terminal on the same session bus.
+`tools/entra-e2e.sh` sets the same opt-in for its private frontend.
+
 ## The configuration file
 
 A GKeyFile, at `$XDG_CONFIG_HOME/entra-token-helper/config` unless `--config` or
@@ -314,10 +340,7 @@ Within `"schema": 1`:
 A change to any of the above requires `"schema": 2` and a documented migration. Until this
 project has acquired a single real token, the schema should be considered provisional.
 
-The portal interface version is separate. A caller of this CLI never sees it, and the client is
-expected to work against anything implementing version 1 of
-[`org.freedesktop.portal.WebAuthentication.X1`](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/PUBLIC-INTERFACE.md)
-including, one day, a desktop-native backend rather than that project's own, or the frontend
-having moved into xdg-desktop-portal entirely
-([UPSTREAMING.md](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/UPSTREAMING.md)).
-The backend interface version is separate again and is nobody's business here.
+The portal interface version is separate from the CLI schema. The client uses version 1 of
+[`org.freedesktop.portal.experimental.WebAuthentication1`](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/PUBLIC-INTERFACE.md)
+on xdg-desktop-portal. Breaking changes increment the trailing interface number;
+non-breaking changes increment the `version` property. The backend interface version is independent.

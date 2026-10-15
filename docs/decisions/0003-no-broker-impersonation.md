@@ -3,6 +3,8 @@
 Date: 2026-09-03
 Status: accepted
 
+Superseded in part by [ADR 0004](0004-merged-experimental-portal-convention.md).
+
 ## Context
 
 `sso-mib`, the Microsoft Identity Broker and the device-bound primary refresh token (PRT) are

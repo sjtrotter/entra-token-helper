@@ -12,8 +12,8 @@
  *  dependency.
  *
  *      bus name      org.freedesktop.portal.Desktop
- *      object path   /org/freedesktop/portal/desktop/experimental
- *      interface     org.freedesktop.portal.WebAuthentication.X1
+ *      object path   /org/freedesktop/portal/desktop
+ *      interface     org.freedesktop.portal.experimental.WebAuthentication1
  *      method        Start(s parent_window, s start_uri, s completion_uri,
  *                          a{sv} options) -> o request_handle
  *      result        org.freedesktop.portal.Request::Response(u, a{sv})
@@ -32,12 +32,12 @@
  *  it. A machine that installs a different backend changes nothing in this file.
  *
  *  THE INTERFACE IS EXPERIMENTAL, AND ITS ABSENCE IS THE COMMON FAILURE.
- *  org.freedesktop.portal.WebAuthentication.X1 lives on the experimental object
- *  path and is not exported unless xdg-desktop-portal found a backend configured
- *  for it. With none configured the interface is absent from introspection
- *  entirely - Properties.Get on it fails, and Start() gets UnknownMethod. That is
- *  not an error to report as a failure: it is ENTRA_WEBAUTH_UNAVAILABLE, and the
- *  CLI maps it to exit 40.
+ *  xdg-desktop-portal exports org.freedesktop.portal.experimental.WebAuthentication1
+ *  only when it found a backend configured for it and was started with
+ *  WebAuthentication1 listed in XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL. Otherwise
+ *  the interface is absent from introspection entirely - Properties.Get on it
+ *  fails, and Start() gets UnknownMethod. That is not an error to report as a
+ *  failure: it is ENTRA_WEBAUTH_UNAVAILABLE, and the CLI maps it to exit 40.
  *
  *  The same "absent interface" also means: no session bus, nothing owning
  *  org.freedesktop.portal.Desktop, or a portal with no backend configured for the
@@ -55,9 +55,8 @@
  */
 
 #define ENTRA_PORTAL_BUS_NAME "org.freedesktop.portal.Desktop"
-/** Experimental portals are exported here, not on /org/freedesktop/portal/desktop. */
-#define ENTRA_PORTAL_OBJECT_PATH "/org/freedesktop/portal/desktop/experimental"
-#define ENTRA_PORTAL_INTERFACE "org.freedesktop.portal.WebAuthentication.X1"
+#define ENTRA_PORTAL_OBJECT_PATH "/org/freedesktop/portal/desktop"
+#define ENTRA_PORTAL_INTERFACE "org.freedesktop.portal.experimental.WebAuthentication1"
 #define ENTRA_PORTAL_REQUEST_INTERFACE "org.freedesktop.portal.Request"
 
 typedef enum

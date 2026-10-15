@@ -116,6 +116,7 @@ fi
 
 # shellcheck disable=SC1090
 [ -n "$XDP_ENV" ] && [ -f "$XDP_ENV" ] && . "$XDP_ENV"
+xdp_enable_experimental
 
 command -v python3 >/dev/null || die "python3 not found"
 command -v openssl >/dev/null || die "openssl not found"
@@ -381,7 +382,9 @@ EOF
 	rc=$?
 	check "no bus exits 40" "$([ "$rc" = 40 ] && echo 0 || echo 1)"
 	check_grep "and the message names the interface" "$LOGDIR/nobus.err" \
-		'org.freedesktop.portal.WebAuthentication.X1'
+		'org.freedesktop.portal.experimental.WebAuthentication1'
+	check_grep "and the message names the frontend opt-in" "$LOGDIR/nobus.err" \
+		'XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL=WebAuthentication1'
 
 	echo
 	echo "=== what nobody was allowed to write down ==="
