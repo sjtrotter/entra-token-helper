@@ -1,60 +1,6 @@
 #!/bin/bash
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # SPDX-FileCopyrightText: 2026 Stephen J. Trotter <stephen.j.trotter@gmail.com>
-#
-# Adapted from the sibling backend xdg-desktop-portal-certificate's tools/lib.sh
-# (same author, same licence), with the fixture marker, the .portal
-# file and the routed interface changed.
-#
-# lib.sh -- the two things every script in tools/ was doing its own copy of:
-# deciding a scratch directory is safe to write into and to DELETE, and building
-# the throwaway XDG_DESKTOP_PORTAL_DIR the development frontend reads.
-#
-# Sourced, never executed.
-
-# --------------------------------------------------------------- scratch dirs
-#
-# WHAT THESE DIRECTORIES HOLD, and why the checks are not paranoia: a SoftHSM
-# fixture directory contains the PKCS#11 module a client certificate is resolved
-# through and the PIN file the backend reads, and a portal directory decides
-# which .portal files the frontend reads and which backend it therefore hands a
-# sign-in to. Both are removed by these scripts.
-#
-# THE FIVE THINGS THAT ARE CHECKED, and each is here because ownership alone is
-# not enough for a recursive delete:
-#
-#   1. NO SYMLINKS ON THE PATH. The path is compared against its own resolved
-#      real path, so a fixture reached through a link -- which is how a
-#      directory that passes every other check can still be somebody else's --
-#      is refused rather than followed.
-#   2. UNDER $TMPDIR, by real path, so a mistyped variable pointing at a home
-#      directory or a source tree is refused rather than emptied.
-#   3. EVERY ANCESTOR from $TMPDIR down is owned by this user or by root, and
-#      is not writable by anyone else unless it is sticky -- which is exactly
-#      what /tmp is. Without this a fixture can be correct and still be reached
-#      through a directory a second user can rename underneath it.
-#   4. A MARKER that is a REGULAR FILE, owned by this user, mode 0600, naming
-#      the fixture that created it. A marker that is a symlink, or one another
-#      user could have written, proves nothing.
-#   5. MODE 0700 (or 0500) ON THE FIXTURE ITSELF, and it is REFUSED rather than
-#      repaired. Every fixture here is created exclusively with umask 077, so
-#      it is 0700 from its first instant; one that is not 0700 now was open at
-#      some point, and a directory that was writable is a directory whose
-#      marker may have been forged.
-#
-# A directory that does not exist is created exclusively -- mktemp -d for the
-# throwaway ones, a plain mkdir (never mkdir -p, which is happy to adopt a
-# directory somebody else has just made) for the one whose name two other
-# scripts have to be able to predict. One that exists without a valid marker is
-# never touched: the message says to remove it by hand, because a script
-# guessing that an unmarked directory is disposable is exactly the accident the
-# marker exists to prevent.
-#
-# $TMPDIR ITSELF IS THE OPERATOR'S CHOICE and is not validated beyond 3 above.
-# Containment under it is a guard against a typo, not a trust boundary: a
-# TMPDIR pointing somewhere unwise is a decision the person running these
-# scripts made, and what the checks defend is the case where somebody ELSE
-# controls part of the path.
 
 XDP_FIXTURE_MARKER=".xdg-desktop-portal-webauth-fixture"
 
@@ -63,16 +9,13 @@ lib_die() {
 	exit 40
 }
 
-# The real path of $TMPDIR, without a trailing slash.
 fixture_tmp_root() {
 	local root="${TMPDIR:-/tmp}"
 
-	root="$(realpath -m -- "$root")" || lib_die "could not resolve TMPDIR '$root'"
+	root="$(realpath -m -- "$root")" || lib_die "TMPDIR resolution failed: '$root'"
 	printf '%s' "${root%/}"
 }
 
-# fixture_no_symlinks PATH -- true when no component of PATH is a symlink.
-# Compares the lexically normalised path with the fully resolved one.
 fixture_no_symlinks() {
 	local path="$1" lexical real
 
@@ -81,7 +24,7 @@ fixture_no_symlinks() {
 	[ "$lexical" = "$real" ]
 }
 
-# fixture_under_tmp PATH -- true when PATH's real path is strictly inside it.
+# TMPDIR is operator-selected; containment guards against accidental writes outside it.
 fixture_under_tmp() {
 	local path real root
 
@@ -95,9 +38,7 @@ fixture_under_tmp() {
 	esac
 }
 
-# fixture_dir_safe PATH -- an ancestor we are willing to reach a fixture
-# through: owned by us or by root, and not writable by anyone else unless it is
-# sticky.
+# Ancestor checks prevent other users from replacing directories on the fixture path.
 fixture_dir_safe() {
 	local path="$1" owner mode sticky group other
 
@@ -116,115 +57,97 @@ fixture_dir_safe() {
 	return 0
 }
 
-# fixture_ancestors_ok REAL -- $TMPDIR, and every directory between it and
-# REAL's parent.
 fixture_ancestors_ok() {
 	local real="$1" root path
 
 	root="$(fixture_tmp_root)"
 	fixture_dir_safe "$root" ||
-		lib_die "$root is not owned by this user or root, or is writable by others without
-the sticky bit; refusing to keep fixtures under it"
+		lib_die "Temporary root $root requires user or root ownership and a sticky bit when writable by others"
 
 	path="$(dirname -- "$real")"
 	while [ "$path" != "$root" ] && [ "$path" != "/" ]; do
 		fixture_dir_safe "$path" ||
-			lib_die "$path is on the path to a fixture and is not owned by this user or
-root, or is writable by others without the sticky bit; refusing to use it"
+			lib_die "Fixture ancestor $path requires user or root ownership and a sticky bit when writable by others"
 		path="$(dirname -- "$path")"
 	done
 }
 
-# fixture_claim DIR TAG -- write the marker. The directory must have just been
-# created by this script.
+# Only a directory just created by this script may receive a fixture marker.
 fixture_claim() {
 	local dir="$1" tag="$2"
 
 	(umask 177 && printf '%s\n' "$tag" >"$dir/$XDP_FIXTURE_MARKER") ||
-		lib_die "could not write the fixture marker in $dir"
-	chmod 600 "$dir/$XDP_FIXTURE_MARKER" || lib_die "could not chmod the marker in $dir"
+		lib_die "Fixture marker write failed in $dir"
+	chmod 600 "$dir/$XDP_FIXTURE_MARKER" || lib_die "Fixture marker permission change failed in $dir"
 }
 
-# fixture_refuse REAL REASON -- every refusal names the manual way out, because
-# fixture_remove refuses the same directories fixture_check does and a script
-# that will neither use nor delete a directory has to say what will.
 fixture_refuse() {
 	lib_die "$2
-Refusing to write into it or remove it. If it IS disposable, remove it by hand:
+Disposable fixtures can be removed manually:
     rm -rf -- '$1'"
 }
 
-# fixture_check DIR TAG -- refuse anything this project did not make.
+# Reuse and deletion require an owned private directory and a mode 0600 marker with the expected tag.
 fixture_check() {
 	local dir="$1" tag="$2" real marker owner mode claimed kind
 
-	[ -L "$dir" ] && lib_die "$dir is a symlink; refusing to use it"
-	[ -d "$dir" ] || lib_die "$dir exists and is not a directory"
+	[ -L "$dir" ] && lib_die "Fixture path is a symlink: $dir"
+	[ -d "$dir" ] || lib_die "Fixture path is not a directory: $dir"
 
 	fixture_no_symlinks "$dir" ||
-		lib_die "$dir is reached through a symlink; refusing to use it"
+		lib_die "Fixture path contains a symlink: $dir"
 
 	fixture_under_tmp "$dir" ||
-		lib_die "$dir is not under ${TMPDIR:-/tmp}; these fixtures are only ever created,
-and only ever removed, inside the temporary directory. Set TMPDIR if you want
-them somewhere else."
+		lib_die "Fixture path $dir must be inside ${TMPDIR:-/tmp}; set TMPDIR to choose another temporary root"
 
-	real="$(realpath -e -- "$dir")" || lib_die "could not resolve $dir"
+	real="$(realpath -e -- "$dir")" || lib_die "Fixture path resolution failed: $dir"
 	fixture_ancestors_ok "$real"
 
 	owner="$(stat -c %u -- "$real")"
 	[ "$owner" = "$(id -u)" ] ||
-		fixture_refuse "$real" "$real is owned by uid $owner, not $(id -u)."
+		fixture_refuse "$real" "Fixture $real requires uid $(id -u); owner is uid $owner"
 
 	marker="$real/$XDP_FIXTURE_MARKER"
 
 	[ -L "$marker" ] &&
-		fixture_refuse "$real" "$real has a symlink where its fixture marker should be."
+		fixture_refuse "$real" "Fixture marker is a symlink in $real"
 	kind="$(stat -c %F -- "$marker" 2>/dev/null)" || kind=""
 	[ "$kind" = "regular file" ] ||
-		fixture_refuse "$real" "$real has no $XDP_FIXTURE_MARKER and was not created by this project."
+		fixture_refuse "$real" "Fixture marker $real/$XDP_FIXTURE_MARKER must be a regular file"
 
 	owner="$(stat -c %u -- "$marker")"
 	[ "$owner" = "$(id -u)" ] ||
-		fixture_refuse "$real" "the fixture marker in $real is owned by uid $owner."
+		fixture_refuse "$real" "Fixture marker in $real belongs to uid $owner; current user ownership is required"
 
 	mode="$(stat -c %a -- "$marker")"
 	[ "$mode" = "600" ] ||
-		fixture_refuse "$real" "the fixture marker in $real is mode $mode, not 600.
-A fixture made before this check existed has a 0644 marker; re-create it with the
-script that owns it (tools/softhsm-fixture.sh for the SoftHSM one) or:
-    chmod 600 -- '$marker'"
+		fixture_refuse "$real" "Fixture marker in $real has mode $mode; mode 0600 is required"
 
 	claimed="$(cat -- "$marker" 2>/dev/null)"
 	[ "$claimed" = "$tag" ] ||
-		fixture_refuse "$real" "$real belongs to the '$claimed' fixture, not '$tag'."
+		fixture_refuse "$real" "Fixture $real has tag '$claimed'; expected '$tag'"
 
+	# Fixture permissions are validated without repair because exposed markers may be forged.
 	mode="$(stat -c %a -- "$real")"
 	case "$mode" in
 	700 | 500) ;;
 	*)
-		fixture_refuse "$real" "$real is mode $mode, not 700.
-Fixtures are created 0700 and stay 0700; one that is not was open at some point
-and its marker cannot be trusted."
+		fixture_refuse "$real" "Fixture $real has mode $mode; modes 0700 and 0500 are accepted"
 		;;
 	esac
 }
 
-# fixture_create DIR TAG -- create it exclusively and claim it. mkdir, never
-# mkdir -p: mkdir fails if the directory already exists, so this cannot adopt
-# one somebody else created a moment ago, and umask 077 means it is never
-# briefly readable by anyone else.
+# Exclusive creation with umask 077 prevents adopting another user's directory or exposing the fixture.
 fixture_create() {
 	local dir="$1" tag="$2"
 
 	fixture_under_tmp "$dir" ||
-		lib_die "$dir is not under ${TMPDIR:-/tmp}; refusing to create a fixture there"
+		lib_die "Fixture path $dir must be inside ${TMPDIR:-/tmp}"
 
-	(umask 077 && mkdir -- "$dir") || lib_die "could not create $dir"
+	(umask 077 && mkdir -- "$dir") || lib_die "Fixture directory creation failed: $dir"
 	fixture_claim "$dir" "$tag"
 }
 
-# fixture_make DIR TAG -- create it if it is not there, then check it.
 fixture_make() {
 	local dir="$1" tag="$2"
 
@@ -232,54 +155,26 @@ fixture_make() {
 	fixture_check "$dir" "$tag"
 }
 
-# fixture_remove DIR TAG -- the only recursive delete in this project's tools.
-# It runs on the RESOLVED path, after fixture_check has passed on it, and
-# --one-file-system stops it descending into anything that has been mounted
-# inside the fixture since it was made.
+# Deletion uses the checked real path and must not cross into mounted filesystems.
 fixture_remove() {
 	local dir="$1" tag="$2" real
 
 	[ -e "$dir" ] || [ -L "$dir" ] || return 0
 	fixture_check "$dir" "$tag"
 
-	real="$(realpath -e -- "$dir")" || lib_die "could not resolve $dir"
-	rm -rf --one-file-system -- "$real" || lib_die "could not remove $real"
+	real="$(realpath -e -- "$dir")" || lib_die "Fixture path resolution failed: $dir"
+	rm -rf --one-file-system -- "$real" || lib_die "Fixture directory removal failed: $real"
 }
 
-# fixture_mktemp PREFIX TAG -- a fresh directory with an unguessable name,
-# already claimed. Echoes the path.
 fixture_mktemp() {
 	local prefix="$1" tag="$2" dir
 
-	dir="$(mktemp -d "${TMPDIR:-/tmp}/$prefix.XXXXXXXX")" || lib_die "mktemp failed"
+	dir="$(mktemp -d "${TMPDIR:-/tmp}/$prefix.XXXXXXXX")" || lib_die "Temporary fixture creation failed"
 	fixture_claim "$dir" "$tag"
 	printf '%s' "$dir"
 }
 
-# --------------------------------------------------- the dev XDG_DESKTOP_PORTAL_DIR
-#
-# THE WHOLE MACHINE'S PORTALS, PLUS OURS. Setting XDG_DESKTOP_PORTAL_DIR makes
-# the frontend ignore EVERY other .portal directory and EVERY other portals.conf
-# on the machine (desktop-portal/xdp-portal-config.c: both lookups `goto out` /
-# return as soon as the variable is set). A directory holding only
-# certificate.portal therefore does not mean "our backend plus the usual ones";
-# it means our backend and NOTHING ELSE -- no file chooser, no screenshot, and
-# no SETTINGS.
-#
-# That was a real bug and it had two visible faces:
-#
-#   * the sign-in window came up in the light theme on a dark desktop, because
-#     org.freedesktop.portal.Settings had no backend to answer
-#     org.freedesktop.appearance/color-scheme from; and
-#   * in --live mode the stack took org.freedesktop.portal.Desktop on the REAL
-#     session bus with that configuration, so for as long as it ran EVERY
-#     portal on the session was gone, not just replaced.
-#
-# So the directory is populated with a symlink to every .portal the machine has,
-# and the portals.conf is the machine's EFFECTIVE configuration flattened into
-# one file, with one line replaced for this backend.
 
-# Enable both experimental portals in the frontend's environment.
 xdp_enable_experimental() {
 	local name
 
@@ -292,7 +187,7 @@ xdp_enable_experimental() {
 	export XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL
 }
 
-# xdp_data_dirs -- $XDG_DATA_HOME then $XDG_DATA_DIRS, in the frontend's order.
+# The frontend searches XDG_DATA_HOME before XDG_DATA_DIRS.
 xdp_data_dirs() {
 	local dirs
 
@@ -301,27 +196,12 @@ xdp_data_dirs() {
 	printf '%s\n' "$dirs" | tr ':' '\n'
 }
 
-# xdp_desktops -- $XDG_CURRENT_DESKTOP lower-cased, one per line. The frontend
-# looks for <desktop>-portals.conf in that order before portals.conf.
 xdp_desktops() {
 	printf '%s\n' "${XDG_CURRENT_DESKTOP:-}" | tr ':' '\n' | tr '[:upper:]' '[:lower:]' |
 		grep -v '^$'
 }
 
-# xdp_config_chain -- EVERY portals.conf the frontend would load, in its order,
-# one path per line.
-#
-# THE FRONTEND DOES NOT STOP AT THE FIRST FILE, which is what the old helper
-# assumed. desktop-portal/xdp-portal-config.c loads one configuration per
-# directory in the chain (load_portal_configurations()) and then resolves EACH
-# INTERFACE against the whole list (xdp_portal_config_find()): the first
-# configuration that names the interface, or that has a `default`, decides it,
-# and a `none` anywhere in that configuration's list for the interface means no
-# backend at all. So copying the first file loses whatever a later one said --
-# a partial ~/.config file hiding /etc's `Screenshot=none`, for instance.
-#
-# Within a directory the frontend takes <desktop>-portals.conf for the first
-# matching $XDG_CURRENT_DESKTOP entry, and portals.conf only if none matched.
+# Within each directory, the first matching desktop config wins; portals.conf is the fallback.
 xdp_config_chain() {
 	local dir desktop found
 
@@ -344,22 +224,7 @@ xdp_config_chain() {
 	done | awk '!seen[$0]++'
 }
 
-# xdp_flatten_preferred FILE... -- the chain's EFFECTIVE [preferred] map as one
-# section.
-#
-# For each interface named anywhere in the chain, and for `default`, this walks
-# the chain in order and builds the candidate list the frontend would try:
-#
-#   * a configuration that lists `none` for the interface ends the list there
-#     (portal_config_interface_prefers_none() returns before anything else);
-#   * a configuration that names the interface contributes its list, then its
-#     own `default` list, because that is the order
-#     xdp_portal_config_find() tries them in within one configuration;
-#   * a configuration that does not name it contributes its `default` list, and
-#     a `none` there ends the list for the same reason.
-#
-# The result is fed back to the frontend as one file, where the same
-# "first installed candidate wins" rule reaches the same answer.
+# Resolve interfaces across the full chain using each file's interface candidates then defaults, or defaults alone for absent interfaces; an applicable none ends the chain and the first installed candidate wins.
 xdp_flatten_preferred() {
 	[ $# -gt 0 ] || return 0
 
@@ -423,21 +288,16 @@ xdp_flatten_preferred() {
 	' "$@"
 }
 
-# xdp_conf_set FILE KEY VALUE -- replace KEY's line, or add it. The generated
-# file has exactly one section and it is [preferred], so appending is enough;
-# inserting a key BEFORE an existing one would not override it, which is what
-# the old helper did.
+# Generated config has one preferred section; each key must occur once.
 xdp_conf_set() {
 	local file="$1" key="$2" value="$3" tmp="$1.tmp"
 
-	awk -v k="$key" 'index($0, k "=") != 1' "$file" >"$tmp" || lib_die "could not rewrite $file"
+	awk -v k="$key" 'index($0, k "=") != 1' "$file" >"$tmp" || lib_die "Portal config rewrite failed: $file"
 	printf '%s=%s\n' "$key" "$value" >>"$tmp"
-	mv -f -- "$tmp" "$file" || lib_die "could not replace $file"
+	mv -f -- "$tmp" "$file" || lib_die "Portal config replacement failed: $file"
 }
 
-# xdp_write_portal_dir DIR REPO [MODE] -- fill DIR with every .portal on the
-# machine, the webauth backend repository's webauth.portal, and the flattened portals.conf.
-# MODE is "private" (the default) or "live".
+# XDG_DESKTOP_PORTAL_DIR replaces all portal and config search paths, so preserve installed portals.
 xdp_write_portal_dir() {
 	local dir="$1" repo="$2" mode="${3:-private}" source_dir base found
 	local chain=()
@@ -448,56 +308,37 @@ xdp_write_portal_dir() {
 		for found in "$source_dir"/*.portal; do
 			[ -f "$found" ] || continue
 			base="$(basename "$found")"
-			# First one wins, which is the frontend's own rule.
+			# The frontend uses the first installed portal with this filename.
 			[ -e "$dir/$base" ] && continue
 			ln -s -- "$found" "$dir/$base"
 		done
 	done
 
-	# OURS IS A REAL FILE AND IT OVERWRITES: an installed webauth.portal from a
-	# previous `ninja install` must not shadow the one being tested.
-	# The comments are stripped so the file is readable in the log; the
-	# installed one keeps them.
+	# The fixture portal must override any installed copy.
 	rm -f -- "$dir/webauth.portal"
 	sed -e '/^#/d' -e '/^$/d' "$repo/data/webauth.portal.in" >"$dir/webauth.portal"
 
-	# Written as plain portals.conf rather than <desktop>-portals.conf because
-	# that name is the frontend's fallback and is read whatever
-	# XDG_CURRENT_DESKTOP says.
 	mapfile -t chain < <(xdp_config_chain)
 
+	# The generated portals.conf fallback applies to every XDG_CURRENT_DESKTOP value.
 	if [ "${#chain[@]}" -gt 0 ]; then
 		xdp_flatten_preferred "${chain[@]}" >"$dir/portals.conf"
-		echo "${0##*/}: portals.conf flattened from ${#chain[@]} file(s)" >&2
+		echo "${0##*/}: Portal config flattened from ${#chain[@]} files" >&2
 		printf '%s: chain %s\n' "${0##*/}" "${chain[@]}" >&2
 	else
 		printf '[preferred]\ndefault=none;\n' >"$dir/portals.conf"
-		echo "${0##*/}: no portals.conf on this machine; default=none" >&2
+		echo "${0##*/}: Portal config missing; using default=none" >&2
 	fi
 
-	# Named explicitly rather than through default=, so that the frontend's log
-	# line names the interface this backend implements.
 	xdp_conf_set "$dir/portals.conf" \
 		org.freedesktop.impl.portal.experimental.WebAuthentication1 'webauth;'
 
-	# ON A PRIVATE BUS, NOTHING OWNS org.freedesktop.secrets. The frontend
-	# builds its Secret proxy at start-up and D-Bus activation on a bus with no
-	# keyring blocks for the full 25 s activation timeout before "Desktop
-	# acquired" is reached. On the real session bus the machine's own value
-	# stands, because there the keyring is there and the delay is not.
+	# Disabling Secret on a private bus avoids a 25-second keyring activation timeout.
 	if [ "$mode" != live ]; then
 		xdp_conf_set "$dir/portals.conf" org.freedesktop.impl.portal.Secret 'none;'
 	fi
 }
 
-# ------------------------------------------------------------ waiting for a name
-#
-# WAIT FOR THE NAME, DO NOT SLEEP AND HOPE. A fixed sleep races start-up, and
-# the frontend's first call then comes back "was not provided by any .service
-# files", there being no activation file on a private bus.
-#
-# xdp_wait_for_name NAME PID -- poll for at most 30 seconds, giving up early if
-# the process that is meant to own it has exited.
 xdp_wait_for_name() {
 	local name="$1" pid="$2" owned=""
 

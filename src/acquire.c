@@ -33,9 +33,8 @@ gboolean entra_acquire_prepare(EntraAcquire* self, GError** error)
 	if (!entra_authority_allowed(&self->authority, self->config))
 	{
 		g_set_error(error, ENTRA_ERROR, ENTRA_ERROR_USAGE,
-		            "%s is not an authority this client will talk to. The allowlist is "
-		            "login.microsoftonline.com and login.microsoftonline.us; a user may add to "
-		            "it in the configuration file, and nothing else can.",
+		            "Authority %s is not allowlisted; use login.microsoftonline.com or "
+		            "login.microsoftonline.us, or add an entry in the user configuration",
 		            self->authority.host);
 		return FALSE;
 	}
@@ -43,17 +42,17 @@ gboolean entra_acquire_prepare(EntraAcquire* self, GError** error)
 	if (!entra_cloud_client_id_allowed(self->client_id, self->config))
 	{
 		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_USAGE,
-		                    "that client id is not allowlisted; a user may add it in the "
-		                    "configuration file, and nothing else can");
+		                    "Client ID is not allowlisted; add an entry in the user configuration");
 		return FALSE;
 	}
 
 	if (self->scopes == NULL || self->scopes[0] == NULL)
 	{
-		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_USAGE, "at least one --scope");
+		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_USAGE, "--scope is required");
 		return FALSE;
 	}
 
+	/* The completion URI is fixed by the cloud registration and cannot be supplied by callers. */
 	self->redirect = ENTRA_NATIVECLIENT_REDIRECT;
 	self->scope_request = g_strjoinv(" ", self->scopes);
 	self->scope_key = entra_cache_scope_key((const char* const*)self->scopes);
@@ -65,11 +64,7 @@ gboolean entra_acquire_prepare(EntraAcquire* self, GError** error)
 	return entra_endpoints_derive(&self->authority, &self->endpoints, error);
 }
 
-/* Discovery REFINES; it does not gate, and it does not happen until an endpoint
- * is about to be used. A failure is a DEBUG line and the derived endpoints stand.
- * FreeRDP has the opposite coupling -- it fetches the OpenID configuration before
- * asking a provider for a token at all -- and it is why a provider perfectly able
- * to resolve the authority is blocked when that fetch fails. */
+/* Discovery is deferred until an endpoint is needed; failure preserves derived endpoints. */
 static void entra_acquire_discover(EntraAcquire* self)
 {
 	g_autoptr(GError) local = NULL;
@@ -97,11 +92,6 @@ void entra_acquire_clear(EntraAcquire* self)
 	g_clear_pointer(&self->http, entra_http_free);
 }
 
-/* One interactive transaction: authorize through the portal, classify what comes
- * back, exchange the code. @prompt_value is what goes in the authorization URL's
- * prompt parameter, or NULL to let the authority decide — which is what the
- * proof-of-possession step wants, because that is where Entra shows the "you are
- * connecting to a remote desktop" interstitial and a prompt of ours would fight it. */
 static gboolean entra_interactive(EntraAcquire* self, const char* scope, const char* req_cnf,
                                   const char* prompt_value, const char* login_hint,
                                   EntraTokenSet* out, GError** error)
@@ -120,7 +110,7 @@ static gboolean entra_interactive(EntraAcquire* self, const char* scope, const c
 	if (self->prompt == ENTRA_PROMPT_NEVER)
 	{
 		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_INTERACTION_REQUIRED,
-		                    "a sign-in window is required and --prompt never was given");
+		                    "Sign-in requires interaction; --prompt never prevents opening a window");
 		return FALSE;
 	}
 
@@ -157,7 +147,7 @@ static gboolean entra_interactive(EntraAcquire* self, const char* scope, const c
 			break;
 
 		case ENTRA_CALLBACK_ERROR:
-			g_set_error(error, ENTRA_ERROR, ENTRA_ERROR_SERVER, "the authority declined: %s",
+			g_set_error(error, ENTRA_ERROR, ENTRA_ERROR_SERVER, "Authority declined authorization: %s",
 			            callback_error);
 			return FALSE;
 
@@ -165,7 +155,7 @@ static gboolean entra_interactive(EntraAcquire* self, const char* scope, const c
 		case ENTRA_CALLBACK_INVALID:
 		default:
 			g_set_error(error, ENTRA_ERROR, ENTRA_ERROR_INTERNAL,
-			            "the sign-in ended somewhere this request cannot accept: %s",
+			            "Authorization callback is invalid: %s",
 			            entra_callback_result_str(classified));
 			return FALSE;
 	}
@@ -179,9 +169,7 @@ static gboolean entra_interactive(EntraAcquire* self, const char* scope, const c
 
 static const char* entra_prompt_value(EntraAcquire* self)
 {
-	/* select_account by default: on a machine with two cards or two tenants,
-	 * silently reusing whichever session the browser store remembers is how a
-	 * person ends up signed in as the wrong identity without being asked. */
+	/* Account selection prevents silently reusing a browser session for another identity. */
 	return self->prompt == ENTRA_PROMPT_ALWAYS ? "login" : "select_account";
 }
 
@@ -217,8 +205,7 @@ gboolean entra_acquire_login(EntraAcquire* self, char** account_out, GError** er
 	account = entra_jwt_account_name(set.id_token);
 	if (account == NULL)
 	{
-		/* No ID token, or no usable name in it. The account still has to be
-		 * called something a person can pick out of `accounts`. */
+		/* Missing ID tokens and unusable names fall back to a label containing the authority host. */
 		account = g_strdup_printf("unknown@%s", self->authority.host);
 	}
 
@@ -247,11 +234,7 @@ static void entra_result_from_set(EntraAcquire* self, const EntraTokenSet* set, 
 	result->account = g_strdup(account);
 }
 
-/* The proof-of-possession path. Never cached, always a fresh grant, and when the
- * authority says the human has to be asked — which for the RDS-AAD scope it
- * routinely does, because that is the scope carrying the "make sure you trust this
- * client" interstitial — a full interactive authorize for THAT scope, exchanged
- * with req_cnf on the authorization code grant. */
+/* PoP tokens are bound to the caller's key and must never be cached. */
 static gboolean entra_acquire_pop(EntraAcquire* self, EntraAccountRecord* record,
                                   EntraTokenResult* result, GError** error)
 {
@@ -286,13 +269,11 @@ static gboolean entra_acquire_pop(EntraAcquire* self, EntraAccountRecord* record
 	if (self->prompt == ENTRA_PROMPT_NEVER)
 	{
 		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_INTERACTION_REQUIRED,
-		                    "the proof-of-possession token needs a sign-in window and --prompt "
-		                    "never was given");
+		                    "PoP token requires interaction; --prompt never prevents opening a window");
 		return FALSE;
 	}
 
-	/* No prompt parameter: this is where Entra shows its own interstitial, and
-	 * naming a prompt of ours would only get in its way. */
+	/* Omitting prompt lets Entra show its RDS-AAD consent interstitial. */
 	if (!entra_interactive(self, self->scope_request, self->req_cnf, NULL,
 	                       record != NULL ? record->account : self->account, &set, error))
 		return FALSE;
@@ -404,7 +385,7 @@ gboolean entra_acquire_token(EntraAcquire* self, EntraTokenResult* result, GErro
 			g_propagate_error(error, g_steal_pointer(&load_error));
 		else
 			g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_INTERACTION_REQUIRED,
-			                    "a sign-in window is required and --prompt never was given");
+			                    "Sign-in requires interaction; --prompt never prevents opening a window");
 		return FALSE;
 	}
 
@@ -425,7 +406,7 @@ gboolean entra_acquire_token(EntraAcquire* self, EntraTokenResult* result, GErro
 			if (cached == NULL)
 			{
 				g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_INTERNAL,
-				                    "the sign-in produced no token for these scopes");
+				                    "Sign-in returned no token for the requested scopes");
 				return FALSE;
 			}
 

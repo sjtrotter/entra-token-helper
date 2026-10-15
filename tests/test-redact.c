@@ -1,10 +1,5 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later
  * SPDX-FileCopyrightText: 2026 Stephen J. Trotter <stephen.j.trotter@gmail.com>
- *
- * The negative tests: a token, a code, an account name and the authorization
- * server's error_description must not survive a trip through the logging
- * interface. The test for whether this is right is that a support bundle
- * containing a DEBUG log must not let its reader connect as the user.
  */
 
 #include <string.h>
@@ -44,8 +39,6 @@ static void test_an_account_is_never_rendered(void)
 	g_assert_true(g_str_has_prefix(rendered, "<account:"));
 }
 
-/* The description routinely names the account, the tenant and the policy that
- * failed, so it is not rendered even as a length. */
 static void test_a_description_is_never_rendered(void)
 {
 	g_autofree char* rendered = entra_redact_field(ENTRA_FIELD_DESCRIPTION, DESCRIPTION);
@@ -53,8 +46,6 @@ static void test_a_description_is_never_rendered(void)
 	g_assert_cmpstr(rendered, ==, "<description>");
 }
 
-/* A tenant id names an organisation. It is loggable only as a stable hash, so two
- * lines about the same tenant can still be seen to be about the same tenant. */
 static void test_a_tenant_is_a_hash(void)
 {
 	g_autofree char* one = entra_redact_field(ENTRA_FIELD_TENANT,
@@ -68,8 +59,6 @@ static void test_a_tenant_is_a_hash(void)
 	g_assert_cmpstr(one, !=, other);
 }
 
-/* The authority host and the OAuth error CODE are what make a report useful, and
- * neither is a credential. */
 static void test_the_loggable_fields_are_loggable(void)
 {
 	g_autofree char* authority = entra_redact_field(ENTRA_FIELD_AUTHORITY,
@@ -94,8 +83,6 @@ static void test_error_text_is_cut_before_a_uri(void)
 	g_assert_cmpstr(nothing, ==, "(no message)");
 }
 
-/* A DEBUG log is a licence to log more often, not to log more: with --verbose
- * off nothing is written at all, and with it on the same rules apply. */
 static void test_verbose_is_a_frequency_not_a_permission(void)
 {
 	g_assert_false(entra_log_get_verbose());
@@ -113,9 +100,9 @@ int main(int argc, char** argv)
 	g_test_add_func("/redact/account", test_an_account_is_never_rendered);
 	g_test_add_func("/redact/description", test_a_description_is_never_rendered);
 	g_test_add_func("/redact/tenant", test_a_tenant_is_a_hash);
-	g_test_add_func("/redact/loggable", test_the_loggable_fields_are_loggable);
+	g_test_add_func("/redact/public-fields-preserved", test_the_loggable_fields_are_loggable);
 	g_test_add_func("/redact/error-text", test_error_text_is_cut_before_a_uri);
-	g_test_add_func("/redact/verbose", test_verbose_is_a_frequency_not_a_permission);
+	g_test_add_func("/redact/verbose-toggle", test_verbose_is_a_frequency_not_a_permission);
 
 	return g_test_run();
 }

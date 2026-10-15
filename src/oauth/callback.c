@@ -24,7 +24,7 @@ const char* entra_callback_result_str(EntraCallbackResult result)
 	}
 }
 
-/* "" and "/" are the same resource; anything else is compared byte for byte. */
+/* An empty redirect path and "/" identify the same resource. */
 static gboolean entra_path_equal(const char* a, const char* b)
 {
 	const char* left = (a == NULL || *a == '\0') ? "/" : a;
@@ -48,8 +48,7 @@ static int entra_effective_port(GUri* uri)
 	return -1;
 }
 
-/* g_uri_unescape_segment() returns NULL for a malformed escape and for %00, which
- * is the check this needs: a decoded NUL would end every later comparison early. */
+/* Malformed escapes and %00 are rejected to prevent truncated comparisons. */
 static char* entra_decode(const char* value)
 {
 	if (value == NULL)
@@ -58,8 +57,7 @@ static char* entra_decode(const char* value)
 	return g_uri_unescape_segment(value, NULL, NULL);
 }
 
-/* One pass over the raw query, counting occurrences. A parameter present without
- * a value still counts, so "?code=good&code" is two occurrences and is refused. */
+/* Bare parameters count as occurrences so duplicate values cannot bypass validation. */
 static gboolean entra_query_scan(const char* query, const char* name, char** value_out,
                                  guint* count_out)
 {
@@ -108,13 +106,14 @@ static gboolean entra_query_scan(const char* query, const char* name, char** val
 
 			*value_out = entra_decode(raw);
 			if (*value_out == NULL)
-				return FALSE; /* a malformed escape, or %00 */
+				return FALSE;
 		}
 	}
 
 	return TRUE;
 }
 
+/* Callback URIs and decoded credentials must stay out of logs. */
 EntraCallbackResult entra_callback_classify(EntraTransaction* transaction, const char* url,
                                             char** code, char** oauth_error)
 {
@@ -139,6 +138,7 @@ EntraCallbackResult entra_callback_classify(EntraTransaction* transaction, const
 	if (got == NULL || want == NULL)
 		return ENTRA_CALLBACK_INVALID;
 
+	/* The client validates the OAuth redirect independently of the portal's completion match. */
 	if (g_ascii_strcasecmp(g_uri_get_scheme(got), g_uri_get_scheme(want)) != 0 ||
 	    g_uri_get_host(got) == NULL ||
 	    g_ascii_strcasecmp(g_uri_get_host(got), g_uri_get_host(want)) != 0 ||
@@ -146,8 +146,7 @@ EntraCallbackResult entra_callback_classify(EntraTransaction* transaction, const
 	    !entra_path_equal(g_uri_get_path(got), g_uri_get_path(want)))
 		return ENTRA_CALLBACK_UNRELATED;
 
-	/* Past here it IS the redirect, so a failure is INVALID rather than
-	 * UNRELATED: something answered this transaction and got it wrong. */
+	/* A matching redirect that fails subsequent checks is classified as invalid. */
 	if (g_uri_get_userinfo(got) != NULL || g_uri_get_fragment(got) != NULL)
 		return ENTRA_CALLBACK_INVALID;
 
@@ -162,8 +161,7 @@ EntraCallbackResult entra_callback_classify(EntraTransaction* transaction, const
 	if (codes + errors != 1)
 		return ENTRA_CALLBACK_INVALID;
 
-	/* Single use. A second answer is a replay or an answer to a request this
-	 * process did not make, and the state matching does not change that. */
+	/* A matching state does not permit a second response to the same transaction. */
 	if (!entra_transaction_consume(transaction))
 		return ENTRA_CALLBACK_INVALID;
 

@@ -51,8 +51,7 @@ GStrv entra_scopes_split(const char* const* scopes)
 	return (GStrv)g_ptr_array_free(g_steal_pointer(&out), FALSE);
 }
 
-/* g_ptr_array_sort_values() hands the comparator the ELEMENTS, not pointers to
- * them, unlike the g_ptr_array_sort() it replaces. */
+/* g_ptr_array_sort_values() passes elements directly to the comparator. */
 static int entra_strcmp(gconstpointer a, gconstpointer b)
 {
 	return g_strcmp0(a, b);
@@ -231,7 +230,7 @@ EntraAccountRecord* entra_account_record_from_json(const char* json, GError** er
 	if (!json_parser_load_from_data(parser, json, -1, NULL))
 	{
 		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_INTERNAL,
-		                    "the stored account record is not JSON");
+		                    "Stored account record is not valid JSON");
 		return NULL;
 	}
 
@@ -239,7 +238,7 @@ EntraAccountRecord* entra_account_record_from_json(const char* json, GError** er
 	if (root == NULL || !JSON_NODE_HOLDS_OBJECT(root))
 	{
 		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_INTERNAL,
-		                    "the stored account record is not an object");
+		                    "Stored account record must be a JSON object");
 		return NULL;
 	}
 
@@ -283,14 +282,15 @@ EntraAccountRecord* entra_account_record_from_json(const char* json, GError** er
 	return g_steal_pointer(&record);
 }
 
+/* An unavailable keyring maps to exit 40. */
 static void entra_keyring_unavailable(GError** error, const GError* cause)
 {
 	g_autofree char* safe =
-	    entra_redact_error_text(cause != NULL ? cause->message : "no Secret Service");
+	    entra_redact_error_text(cause != NULL ? cause->message : "Secret Service unavailable");
 
 	g_set_error(error, ENTRA_ERROR, ENTRA_ERROR_UNAVAILABLE,
-	            "no keyring: %s. A Secret Service must be running, or set SECRET_BACKEND=file "
-	            "with a keyring this session can unlock.",
+	            "Keyring unavailable: %s; start a Secret Service or set SECRET_BACKEND=file "
+	            "with a keyring this session can unlock",
 	            safe);
 }
 
@@ -329,8 +329,10 @@ static GHashTable* entra_attributes(const char* authority, const char* client_id
 	return attributes;
 }
 
+/* Account secrets are stored only through libsecret. */
 gboolean entra_keyring_store(const EntraAccountRecord* record, GError** error)
 {
+	/* The authority attribute includes the tenant to isolate credentials across tenants. */
 	g_autoptr(GHashTable) attributes =
 	    entra_attributes(record->authority, record->client_id, record->account);
 	g_autofree char* json = entra_account_record_to_json(record);
@@ -371,7 +373,7 @@ static EntraAccountRecord* entra_record_from_retrievable(SecretRetrievable* item
 	if (text == NULL)
 	{
 		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_INTERNAL,
-		                    "the stored account record is not text");
+		                    "Stored account record is not text");
 		return NULL;
 	}
 
@@ -400,13 +402,13 @@ EntraAccountRecord* entra_keyring_load(const char* authority, const char* client
 	if (count == 0)
 	{
 		g_set_error(error, ENTRA_ERROR, ENTRA_ERROR_NO_ACCOUNT,
-		            "no stored account for this authority and client id%s",
+		            "Stored account not found for this authority and client ID%s",
 		            account != NULL ? " and account" : "; run 'entra-token-helper login'");
 	}
 	else if (count > 1 && account == NULL)
 	{
 		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_NO_ACCOUNT,
-		                    "more than one stored account matches; name one with --account");
+		                    "Multiple stored accounts match; select one with --account");
 	}
 	else
 	{
@@ -442,8 +444,7 @@ GPtrArray* entra_keyring_list(GError** error)
 		return NULL;
 	}
 
-	/* The attributes alone, so that listing accounts never unlocks anything and
-	 * never has a token in hand. */
+	/* Listing reads attributes without unlocking the keyring or retrieving credentials. */
 	for (GList* item = found; item != NULL; item = item->next)
 	{
 		g_autoptr(GHashTable) got = secret_retrievable_get_attributes(item->data);

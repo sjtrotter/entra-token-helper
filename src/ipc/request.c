@@ -104,8 +104,7 @@ char* entra_response_token_json(const char* token, const char* token_type, gint6
 	json_builder_add_int_value(builder, ENTRA_SCHEMA_VERSION);
 	json_builder_set_member_name(builder, "status");
 	json_builder_add_string_value(builder, entra_status_symbol(ENTRA_STATUS_OK));
-	/* "token" is the name the contract fixed; "access_token" is the name every
-	 * OAuth consumer already reads. Both, with the same value. */
+	/* The response contract exposes the access token under both token and access_token. */
 	json_builder_set_member_name(builder, "token");
 	json_builder_add_string_value(builder, token);
 	json_builder_set_member_name(builder, "access_token");

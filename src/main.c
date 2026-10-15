@@ -1,12 +1,5 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later
  * SPDX-FileCopyrightText: 2026 Stephen J. Trotter <stephen.j.trotter@gmail.com>
- *
- * entra-token-helper - Entra ID / AVD token client; a portal CONSUMER.
- *
- * The command line front end described in docs/ENTRA-CLIENT-CLI.md: it parses the
- * four verbs and their options, validates them, and hands the request to acquire.c.
- * It talks to xdg-desktop-portal and to nothing else, and it never sees, names or
- * depends on whichever backend the portal routes to.
  */
 
 #include <stdarg.h>
@@ -40,7 +33,7 @@ typedef struct
 	const char* tenant;
 	const char* cloud;
 	const char* client_id;
-	GPtrArray* scopes; /* of const char*, borrowed from argv */
+	GPtrArray* scopes; /* Elements are borrowed from argv. */
 	const char* req_cnf;
 	const char* account;
 	const char* config;
@@ -60,61 +53,49 @@ static void eth_usage(FILE* out)
 	fprintf(out,
 	        "entra-token-helper - Entra ID sign-in helper for Azure Virtual Desktop\n"
 	        "\n"
-	        "USAGE\n"
-	        "  entra-token-helper <verb> [options]\n"
+	        "Usage: entra-token-helper <verb> [options]\n"
 	        "\n"
-	        "VERBS\n"
+	        "Verbs:\n"
 	        "  login       sign in and store an account\n"
-	        "  token       acquire an access token (bearer, or PoP with --req-cnf)\n"
+	        "  token       acquire an access token (PoP with --req-cnf)\n"
 	        "  accounts    list stored accounts\n"
-	        "  logout      forget an account\n"
+	        "  logout      forget stored accounts matching --account, or all accounts\n"
 	        "\n"
-	        "OPTIONS\n"
-	        "  --authority <a>        the Entra ID authority: a host\n"
-	        "                         (login.microsoftonline.us) or the https URL form\n"
-	        "                         (https://login.microsoftonline.us/<tenant>)\n"
-	        "  --tenant <id>          tenant identifier, or 'common'\n"
-	        "  --cloud <name>         commercial | usgov: fills in the authority host and\n"
-	        "                         the default AVD scope\n"
-	        "  --client-id <guid>     public client id [default: " ENTRA_AVD_CLIENT_ID "]\n"
-	        "  --scope <scope>        repeatable, and may carry a space separated list\n"
-	        "  --req-cnf <b64url>     PoP confirmation object from the caller;\n"
-	        "                         its presence makes this a proof-of-possession request\n"
-	        "  --account <id>         which stored account to use\n"
+	        "Options:\n"
+	        "  --authority <a>        authority host or HTTPS URL with an optional tenant\n"
+	        "  --tenant <id>          tenant identifier [default: URL tenant or common]\n"
+	        "  --cloud <name>         commercial | usgov; sets authority and default AVD scopes\n"
+	        "  --client-id <guid>     public client ID [default: " ENTRA_AVD_CLIENT_ID "]\n"
+	        "  --scope <scope>        repeatable; accepts whitespace-separated scopes\n"
+	        "  --req-cnf <b64url>     caller's confirmation object for a PoP token request\n"
+	        "  --account <id>         account label\n"
 	        "  --prompt <policy>      auto (default) | always | never\n"
-	        "  --parent-window <h>    the caller's window handle, passed to the portal\n"
-	        "  --session-mode <m>     shared | ephemeral, passed to the portal\n"
+	        "  --parent-window <h>    caller's window handle for the portal\n"
+	        "  --session-mode <m>     shared | ephemeral\n"
 	        "  --format <f>           raw (default) | json\n"
-	        "  --json                 the same as --format json\n"
-	        "  --timeout <seconds>    how long the sign-in window may stay up\n"
-	        "  --config <path>        configuration file (or ENTRA_TOKEN_HELPER_CONFIG)\n"
-	        "  --verbose              raise the log level on stderr\n"
-	        "  --help, --version      print this, or the version, and exit\n"
+	        "  --json                 alias for --format json\n"
+	        "  --timeout <seconds>    sign-in window timeout [default: 300]\n"
+	        "  --config <path>        config path [default: ENTRA_TOKEN_HELPER_CONFIG or XDG]\n"
+	        "  --verbose              enable client debug logs on stderr\n"
+	        "  -h, --help             show usage\n"
+	        "  -V, --version          show version\n"
 	        "\n"
-	        "EXIT CODES\n"
-	        "   0 success                   30 no such account / not signed in\n"
-	        "  10 interaction required      40 unavailable (no portal, no keyring)\n"
-	        "  20 cancelled by user         50 authorization server error\n"
-	        "  64 usage                     70 internal\n"
+	        "Exit codes:\n"
+	        "   0 success                   30 no account or multiple matches\n"
+	        "  10 interaction required      40 provider unavailable (portal, keyring or authority)\n"
+	        "  20 cancelled                 50 authorization server error\n"
+	        "  64 usage error               70 internal error\n"
 	        "\n"
-	        "THE REDIRECT IS THE SAME IN BOTH CLOUDS\n"
+	        "Redirect URI for both clouds:\n"
 	        "  " ENTRA_NATIVECLIENT_REDIRECT "\n"
-	        "  is the AVD application registration's only redirect URI. There is no .us\n"
-	        "  variant; it was tried against login.microsoftonline.us on hardware and\n"
-	        "  rejected with AADSTS50011. It is never taken from a caller.\n"
+	        "  The AVD registration requires this URI in both clouds.\n"
 	        "\n"
-	        "THE PORTAL, AND WHY IT MAY NOT BE THERE\n"
-	        "  Interactive sign-in goes through xdg-desktop-portal:\n"
-	        "    " ENTRA_PORTAL_INTERFACE "\n"
-	        "  on " ENTRA_PORTAL_BUS_NAME " at " ENTRA_PORTAL_OBJECT_PATH ".\n"
-	        "  This client calls the portal and never a backend.\n"
-	        "\n"
-	        "  That interface is EXPERIMENTAL and is not exported unless the portal has\n"
-	        "  a backend configured for it. With none configured the interface is absent\n"
-	        "  entirely, and an interactive request exits 40 (unavailable) saying so, so\n"
-	        "  that a dispatcher can fall through to another provider -- FreeRDP's\n"
-	        "  terminal paste flow, say. The same 40 covers no portal at all, which is\n"
-	        "  indistinguishable by design.\n");
+	        "Interactive portal:\n"
+	        "  " ENTRA_PORTAL_INTERFACE "\n"
+	        "  Bus: " ENTRA_PORTAL_BUS_NAME "\n"
+	        "  Path: " ENTRA_PORTAL_OBJECT_PATH "\n"
+	        "  The frontend requires a configured backend and\n"
+	        "  XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL=WebAuthentication1.\n");
 }
 
 static EthVerb eth_verb_from_string(const char* s)
@@ -148,7 +129,7 @@ static const char* eth_verb_to_string(EthVerb verb)
 	}
 }
 
-/* Report a usage problem on stderr. stdout stays empty on every non-zero exit. */
+/* Usage failures leave stdout empty. */
 static int eth_usage_error(const char* fmt, ...) G_GNUC_PRINTF(1, 2);
 
 static int eth_usage_error(const char* fmt, ...)
@@ -165,13 +146,12 @@ static int eth_usage_error(const char* fmt, ...)
 	return entra_status_exit_code(ENTRA_STATUS_USAGE);
 }
 
-/* Take the value of an option, either "--opt value" or "--opt=value". */
 static gboolean eth_take_value(int argc, char** argv, int* i, const char* name, const char* eq,
                                const char** out)
 {
 	if (*out != NULL)
 	{
-		(void)eth_usage_error("%s given more than once", name);
+		(void)eth_usage_error("%s appears more than once", name);
 		return FALSE;
 	}
 
@@ -179,7 +159,7 @@ static gboolean eth_take_value(int argc, char** argv, int* i, const char* name, 
 	{
 		if (eq[1] == '\0')
 		{
-			(void)eth_usage_error("%s needs a value", name);
+			(void)eth_usage_error("%s requires a value", name);
 			return FALSE;
 		}
 		*out = &eq[1];
@@ -188,7 +168,7 @@ static gboolean eth_take_value(int argc, char** argv, int* i, const char* name, 
 
 	if (*i + 1 >= argc)
 	{
-		(void)eth_usage_error("%s needs a value", name);
+		(void)eth_usage_error("%s requires a value", name);
 		return FALSE;
 	}
 
@@ -197,8 +177,7 @@ static gboolean eth_take_value(int argc, char** argv, int* i, const char* name, 
 	return TRUE;
 }
 
-/* Every failure leaves stdout empty and says why on stderr, in the same shape the
- * request was made in. The message has already been redacted by whoever set it. */
+/* Errors must be redacted before reaching this output path. */
 static int eth_fail(const EthRequest* request, GError* error)
 {
 	EntraStatus status = entra_status_from_error(error);
@@ -339,7 +318,7 @@ static int eth_do_token(const EthRequest* request, EntraConfig* config)
 	}
 	else
 	{
-		/* The token and a newline, nothing else: a caller captures stdout. */
+		/* Raw stdout is a single token line for the caller to capture. */
 		printf("%s\n", result.access_token);
 	}
 
@@ -422,7 +401,7 @@ static int eth_do_logout(const EthRequest* request)
 	}
 
 	if (removed == 0)
-		fprintf(stderr, "entra-token-helper: nothing to remove\n");
+		fprintf(stderr, "entra-token-helper: No stored accounts to remove\n");
 
 	return 0;
 }
@@ -462,7 +441,7 @@ int main(int argc, char** argv)
 		{
 			if (i + 1 < argc)
 			{
-				rc = eth_usage_error("unexpected argument '%s'", argv[i + 1]);
+				rc = eth_usage_error("Unexpected argument: '%s'", argv[i + 1]);
 				goto out;
 			}
 			continue;
@@ -472,14 +451,14 @@ int main(int argc, char** argv)
 		{
 			if (request.verb != ETH_VERB_NONE)
 			{
-				rc = eth_usage_error("unexpected argument '%s'", arg);
+				rc = eth_usage_error("Unexpected argument: '%s'", arg);
 				goto out;
 			}
 
 			request.verb = eth_verb_from_string(arg);
 			if (request.verb == ETH_VERB_NONE)
 			{
-				rc = eth_usage_error("unknown verb '%s'", arg);
+				rc = eth_usage_error("Unknown verb: '%s'", arg);
 				goto out;
 			}
 			continue;
@@ -550,7 +529,7 @@ int main(int argc, char** argv)
 			continue;
 		}
 
-		rc = eth_usage_error("unknown option '%.*s'", (int)namelen, arg);
+		rc = eth_usage_error("Unknown option: '%.*s'", (int)namelen, arg);
 		goto out;
 	}
 
@@ -594,19 +573,17 @@ int main(int argc, char** argv)
 		goto out;
 	}
 
-	/* Option/verb combinations the contract rules out, written down in code as
-	 * well as in docs/ENTRA-CLIENT-CLI.md. */
 	switch (request.verb)
 	{
 		case ETH_VERB_LOGIN:
 			if (request.prompt == ENTRA_PROMPT_NEVER)
 			{
-				rc = eth_usage_error("login cannot be run with --prompt never");
+				rc = eth_usage_error("login requires --prompt auto or --prompt always");
 				goto out;
 			}
 			if (request.req_cnf != NULL)
 			{
-				rc = eth_usage_error("--req-cnf applies to 'token', not 'login'");
+				rc = eth_usage_error("--req-cnf requires the token verb");
 				goto out;
 			}
 			break;
@@ -614,7 +591,7 @@ int main(int argc, char** argv)
 		case ETH_VERB_TOKEN:
 			if (request.scopes->len == 0 && request.cloud == NULL)
 			{
-				rc = eth_usage_error("token needs at least one --scope, or --cloud");
+				rc = eth_usage_error("token requires --scope or --cloud");
 				goto out;
 			}
 			break;
@@ -623,7 +600,7 @@ int main(int argc, char** argv)
 		case ETH_VERB_LOGOUT:
 			if (request.req_cnf != NULL || request.scopes->len > 0 || prompt != NULL)
 			{
-				rc = eth_usage_error("%s takes only --account, --format and --config",
+				rc = eth_usage_error("%s does not accept --req-cnf, --scope or --prompt",
 				                     eth_verb_to_string(request.verb));
 				goto out;
 			}
@@ -637,7 +614,7 @@ int main(int argc, char** argv)
 	if ((request.verb == ETH_VERB_LOGIN || request.verb == ETH_VERB_TOKEN) &&
 	    request.authority == NULL && request.cloud == NULL)
 	{
-		rc = eth_usage_error("%s needs --authority", eth_verb_to_string(request.verb));
+		rc = eth_usage_error("%s requires --authority or --cloud", eth_verb_to_string(request.verb));
 		goto out;
 	}
 

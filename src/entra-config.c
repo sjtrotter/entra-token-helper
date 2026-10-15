@@ -25,6 +25,7 @@ EntraConfig* entra_config_load(const char* path, GError** error)
 	EntraConfig* self = NULL;
 	GError* local = NULL;
 
+	/* Flags and environment variables select the config file without adding allowlist entries. */
 	if (path == NULL)
 		path = g_getenv("ENTRA_TOKEN_HELPER_CONFIG");
 	if (path == NULL)
@@ -50,6 +51,7 @@ EntraConfig* entra_config_load(const char* path, GError** error)
 
 	self->authorities = g_key_file_get_string_list(file, "allow", "authorities", NULL, NULL);
 	self->client_ids = g_key_file_get_string_list(file, "allow", "client_ids", NULL, NULL);
+	/* The testing config is the only TLS trust override; see docs/TESTING.md. */
 	self->trust_certificate = g_key_file_get_string(file, "testing", "trust_certificate", NULL);
 
 	return self;

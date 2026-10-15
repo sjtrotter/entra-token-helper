@@ -18,7 +18,7 @@ static guchar* entra_base64url_decode(const char* segment, gsize* length_out)
 
 	padded = g_strconcat(segment, remainder == 2 ? "==" : remainder == 3 ? "=" : "", NULL);
 	if (remainder == 1)
-		return NULL; /* not a base64 length */
+		return NULL; /* A base64url length cannot have remainder 1 modulo 4. */
 
 	for (char* p = padded; *p != '\0'; p++)
 	{
@@ -61,7 +61,7 @@ char* entra_jwt_payload(const char* jwt)
 	return g_strndup((const char*)decoded, length);
 }
 
-/* Displayed, therefore checked: valid UTF-8, no control characters, bounded. */
+/* Claims displayed in a terminal must exclude control characters. */
 static gboolean entra_claim_displayable(const char* value)
 {
 	if (value == NULL || *value == '\0' || strlen(value) > 320)

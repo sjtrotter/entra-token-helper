@@ -1,8 +1,5 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later
  * SPDX-FileCopyrightText: 2026 Stephen J. Trotter <stephen.j.trotter@gmail.com>
- *
- * The cloud table, the authority however it was spelled, the discovery document,
- * and the authorization URL built from all three.
  */
 
 #include <string.h>
@@ -26,8 +23,6 @@ static void test_the_cloud_table(void)
 	g_assert_cmpstr(commercial->avd_scope, ==, "https://www.wvd.microsoft.com/.default");
 	g_assert_cmpstr(usgov->avd_scope, ==, "https://www.wvd.azure.us/.default");
 
-	/* THE SAME REDIRECT IN BOTH ROWS. There is no .us variant; asking for one is
-	 * rejected with AADSTS50011. */
 	g_assert_cmpstr(commercial->redirect, ==, usgov->redirect);
 	g_assert_cmpstr(usgov->redirect, ==, ENTRA_NATIVECLIENT_REDIRECT);
 	g_assert_true(g_str_has_prefix(usgov->redirect, "https://login.microsoftonline.com/"));
@@ -85,8 +80,6 @@ static void test_refused_authorities(void)
 	g_assert_false(entra_authority_parse(NULL, NULL, &authority, NULL));
 	g_assert_false(entra_authority_parse("", NULL, &authority, NULL));
 
-	/* Never a token endpoint, never a scheme this client does not speak, never a
-	 * path deeper than the tenant, never a query. */
 	g_assert_false(entra_authority_parse("http://login.microsoftonline.us/t", NULL, &authority,
 	                                     NULL));
 	g_assert_false(entra_authority_parse("https://login.microsoftonline.us/t/oauth2/v2.0/token",
@@ -156,7 +149,6 @@ static void test_a_discovery_document_refines_the_endpoints(void)
 	entra_endpoints_clear(&endpoints);
 }
 
-/* A discovery document is not a licence to move the exchange somewhere else. */
 static void test_an_endpoint_on_another_host_is_discarded(void)
 {
 	static const char document[] =
@@ -209,7 +201,6 @@ static void test_the_authorization_url(void)
 	g_assert_nonnull(strstr(url, "state=STATE"));
 	g_assert_nonnull(strstr(url, "prompt=select_account"));
 	g_assert_nonnull(strstr(url, "client_id=" ENTRA_AVD_CLIENT_ID));
-	/* The redirect is escaped, and it is the commercial one. */
 	g_assert_nonnull(strstr(url, "redirect_uri=https%3A%2F%2Flogin.microsoftonline.com%2F"));
 	g_assert_null(strstr(url, "code_verifier"));
 }
@@ -227,7 +218,6 @@ static void test_the_authorization_url_omits_an_absent_prompt(void)
 	g_assert_nonnull(strstr(url, "login_hint=a%40b.mil"));
 }
 
-/* The token endpoint's error object decides whether a human has to be asked. */
 static void test_token_errors_are_classified(void)
 {
 	static const struct
@@ -258,7 +248,6 @@ static void test_token_errors_are_classified(void)
 		g_assert_cmpint(g_error_matches(error, ENTRA_ERROR, ENTRA_ERROR_INTERACTION_REQUIRED), ==,
 		                cases[i].interactive);
 
-		/* The description names the account and the policy. It must not survive. */
 		g_assert_null(strstr(error->message, "user@tenant"));
 		g_assert_null(strstr(error->message, "AADSTS50173"));
 	}
@@ -266,7 +255,6 @@ static void test_token_errors_are_classified(void)
 
 static void test_a_pop_response_is_parsed(void)
 {
-	/* The shape observed on hardware: no refresh token comes back with a PoP one. */
 	static const char document[] =
 	    "{\"token_type\":\"pop\",\"scope\":\"ms-device-service://termsrv.wvd.microsoft.com/Name/"
 	    "host/user_impersonation\",\"expires_in\":3599,\"ext_expires_in\":3599,"
@@ -293,21 +281,21 @@ int main(int argc, char** argv)
 {
 	g_test_init(&argc, &argv, NULL);
 
-	g_test_add_func("/clouds/table", test_the_cloud_table);
+	g_test_add_func("/clouds/registered-values", test_the_cloud_table);
 	g_test_add_func("/clouds/client-id", test_only_the_avd_client_is_allowlisted);
-	g_test_add_func("/authority/host", test_an_authority_host);
-	g_test_add_func("/authority/url", test_an_authority_url);
+	g_test_add_func("/authority/host-parsed", test_an_authority_host);
+	g_test_add_func("/authority/url-parsed", test_an_authority_url);
 	g_test_add_func("/authority/common", test_an_authority_with_no_tenant_is_common);
-	g_test_add_func("/authority/refused", test_refused_authorities);
-	g_test_add_func("/authority/allowlist", test_the_allowlist);
+	g_test_add_func("/authority/invalid-values-rejected", test_refused_authorities);
+	g_test_add_func("/authority/unlisted-host-rejected", test_the_allowlist);
 	g_test_add_func("/discovery/derived", test_endpoints_are_derived_without_a_network);
 	g_test_add_func("/discovery/refined", test_a_discovery_document_refines_the_endpoints);
 	g_test_add_func("/discovery/other-host", test_an_endpoint_on_another_host_is_discarded);
 	g_test_add_func("/discovery/plaintext", test_a_plaintext_endpoint_is_discarded);
-	g_test_add_func("/discovery/rubbish", test_rubbish_documents);
-	g_test_add_func("/authorize/url", test_the_authorization_url);
+	g_test_add_func("/discovery/invalid-document-rejected", test_rubbish_documents);
+	g_test_add_func("/authorize/pkce-request-fields", test_the_authorization_url);
 	g_test_add_func("/authorize/no-prompt", test_the_authorization_url_omits_an_absent_prompt);
-	g_test_add_func("/token/errors", test_token_errors_are_classified);
+	g_test_add_func("/token/errors-classified", test_token_errors_are_classified);
 	g_test_add_func("/token/pop", test_a_pop_response_is_parsed);
 	g_test_add_func("/token/no-token", test_a_response_with_no_token_is_refused);
 
