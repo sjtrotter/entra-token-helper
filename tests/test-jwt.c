@@ -1,7 +1,5 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later
  * SPDX-FileCopyrightText: 2026 Stephen J. Trotter <stephen.j.trotter@gmail.com>
- *
- * Reading the account name out of an ID token, and refusing to display rubbish.
  */
 
 #include <string.h>
@@ -10,8 +8,7 @@
 
 #include "oauth/jwt.h"
 
-/* A JWT is three base64url segments. Only the middle one is read here, and the
- * signature is deliberately not checked: see jwt.h. */
+/* Fixture tokens carry a dummy signature because this parser only reads claims. */
 static char* jwt_with(const char* payload)
 {
 	g_autofree char* encoded = g_base64_encode((const guchar*)payload, strlen(payload));
@@ -65,7 +62,7 @@ static void test_a_claim_is_read_by_name(void)
 
 static void test_padding_is_restored(void)
 {
-	/* Payload lengths that need one and two '=' back. */
+	/* These payload lengths require one and two padding characters. */
 	g_autofree char* one = jwt_with("{\"sub\":\"aaaa\"}");
 	g_autofree char* two = jwt_with("{\"sub\":\"aaaaa\"}");
 	g_autofree char* first = entra_jwt_account_name(one);
@@ -75,7 +72,6 @@ static void test_padding_is_restored(void)
 	g_assert_cmpstr(second, ==, "aaaaa");
 }
 
-/* A name that reaches a terminal is a place to hide an escape sequence. */
 static void test_a_control_character_is_refused(void)
 {
 	g_autofree char* token = jwt_with("{\"upn\":\"a\\u001b[2Jb@c.mil\"}");
@@ -110,7 +106,7 @@ int main(int argc, char** argv)
 	g_test_add_func("/jwt/claim", test_a_claim_is_read_by_name);
 	g_test_add_func("/jwt/padding", test_padding_is_restored);
 	g_test_add_func("/jwt/control-character", test_a_control_character_is_refused);
-	g_test_add_func("/jwt/rubbish", test_rubbish_is_refused);
+	g_test_add_func("/jwt/invalid-token-rejected", test_rubbish_is_refused);
 	g_test_add_func("/jwt/non-string", test_a_non_string_claim_is_refused);
 
 	return g_test_run();

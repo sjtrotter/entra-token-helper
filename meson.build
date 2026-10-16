@@ -1,20 +1,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # SPDX-FileCopyrightText: 2026 Stephen J. Trotter <stephen.j.trotter@gmail.com>
 
-# entra-token-client: the Entra ID / AVD token client -- a CONSUMER of the portal.
-#
-# This is a COMPLETE, STANDALONE meson project. It can be built on its own:
-#
-#     meson setup build && ninja -C build
-#
-# It depends on the web authentication portal only over D-Bus, at run time, and
-# only for interactive sign-in. There is no build-time dependency in either
-# direction, and there must never be one: the whole claim of the design is that
-# the portal is protocol-independent.
-#
-# It calls xdg-desktop-portal's public interface. It has no knowledge of the
-# impl interface, of .portal files, or of which backend runs -- exactly as a
-# Flatpak application calling org.freedesktop.portal.FileChooser has none.
+# The portal is a runtime D-Bus dependency; builds are independent of its frontend and backend.
 
 project(
   'entra-token-client',
@@ -50,26 +37,21 @@ glib_dep = dependency('glib-2.0', version: '>= 2.66')
 gobject_dep = dependency('gobject-2.0', version: '>= 2.66')
 gio_dep = dependency('gio-2.0', version: '>= 2.66')
 
-# The token endpoint, and nothing else. No web engine, no toolkit, no window:
-# everything interactive is one D-Bus call to xdg-desktop-portal.
 soup_dep = dependency('libsoup-3.0', version: '>= 3.0')
 json_dep = dependency('json-glib-1.0', version: '>= 1.6')
 
-# THE ONLY PLACE A REFRESH TOKEN IS ALLOWED TO LIVE. Required: a build without it
-# would have to either keep no account or write one to a file, and
-# docs/SECURITY.md rules the second out.
+# Credentials are stored through libsecret; see docs/SECURITY.md.
 secret_dep = dependency('libsecret-1', version: '>= 0.20')
 
 entra_deps = [glib_dep, gobject_dep, gio_dep, soup_dep, json_dep, secret_dep]
 
-# One log domain for everything this client writes, so --verbose turns on this
-# client's breadcrumbs and not GIO's and libsoup's as well.
+# --verbose applies only to the client log domain.
 entra_c_args = [
   '-DG_LOG_DOMAIN="entra"',
   '-DENTRA_VERSION="' + meson.project_version() + '"',
 ]
 
-# Everything with no bus and no network in it, so the unit tests need neither.
+# Core sources include I/O; unit tests exercise their local parsing and validation paths.
 entra_core_sources = files(
   'src/cache/keyring.c',
   'src/entra-config.c',
@@ -113,9 +95,9 @@ summary(
   {
     'glib-2.0': glib_dep.version(),
     'gio-2.0': gio_dep.version(),
-    'libsoup-3.0 (the token endpoint)': soup_dep.version(),
+    'libsoup-3.0 (token endpoint)': soup_dep.version(),
     'json-glib-1.0': json_dep.version(),
-    'libsecret-1 (the account store)': secret_dep.version(),
+    'libsecret-1 (account store)': secret_dep.version(),
   },
   section: 'entra-token-client dependencies',
 )
@@ -125,7 +107,7 @@ summary(
     'public interface called': 'org.freedesktop.portal.experimental.WebAuthentication1',
     'on': 'org.freedesktop.portal.Desktop',
     'object path': '/org/freedesktop/portal/desktop',
-    'backends known to this program': 'none, by design',
+    'backends known to this program': 'none',
     'redirect (both clouds)': 'https://login.microsoftonline.com/common/oauth2/nativeclient',
     'account store': 'Secret Service, schema io.github.sjtrotter.entra-token-helper',
   },
@@ -136,7 +118,7 @@ summary(
   {
     'login, token, accounts, logout': true,
     'proof-of-possession tokens (--req-cnf)': true,
-    'a real identity provider': true,
+    'identity provider support': true,
   },
   section: 'status',
   bool_yn: true,

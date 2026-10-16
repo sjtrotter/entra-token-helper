@@ -1,65 +1,6 @@
 #!/bin/bash
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # SPDX-FileCopyrightText: 2026 Stephen J. Trotter <stephen.j.trotter@gmail.com>
-#
-# entra-e2e.sh -- the Entra client, end to end, with nothing real behind it.
-#
-# tools/ui-smoke.sh proves the BACKEND can drive a sign-in window headless.
-# This proves the CLIENT: that entra-token-helper builds an authorization
-# request, gets a code back through the PUBLIC portal interface, exchanges it,
-# stores an account, serves the next request from its cache, mints a
-# proof-of-possession token bound to a caller's key, and forgets all of it.
-#
-# WHAT IT STANDS UP, all on ONE private bus inside ONE headless X server:
-#
-#   xdg-permission-store          the frontend refuses to start without it
-#   xdg-desktop-portal            the development frontend, with the web
-#                                 authentication interface backed in portals.conf
-#   xdg-desktop-portal-webauth    this repository's backend, NO certificate
-#                                 adapter: the mock authority asks for no card,
-#                                 so this run is about the client and not about
-#                                 the card. tools/portal-stack.sh is the card.
-#   tools/mock-token-endpoint.py  an Entra ID shaped authority
-#   entra-token-helper            the program under test, as an ordinary
-#                                 application calling the public interface
-#
-# THE SEVEN RUNS, and what each one is the only evidence for:
-#
-#   1  login              a window, a code, an exchange, an account stored
-#   2  accounts           the stored account is listed
-#   3  token              THE MOCK IS NOT CALLED AT ALL: served from cache
-#   4  token --req-cnf    the mock refuses the pop REFRESH with
-#                         interaction_required -- which is what Entra does,
-#                         because that scope carries the "make sure you trust
-#                         this client" interstitial -- the client opens the
-#                         window again, exchanges a fresh code with req_cnf,
-#                         and the pop token comes back carrying the caller's
-#                         confirmation blob
-#   5  token --req-cnf    again, and the mock sees another grant: A POP TOKEN IS
-#                         NEVER CACHED
-#   6  logout             the account is gone, and a --prompt never request
-#                         after it exits 30 rather than opening a window
-#   7  (no portal at all) what the client does with nothing to call
-#
-# THE KEYRING IS libsecret's FILE BACKEND. SECRET_BACKEND=file with
-# SECRET_FILE_TEST_PATH and SECRET_FILE_TEST_PASSWORD needs no daemon, no
-# gnome-keyring, no D-Bus name and no unlock prompt, which on a private bus is
-# three fewer things to go wrong than starting gnome-keyring-daemon --components
-# =secrets would be. It is a TEST configuration and the client does not choose
-# it: docs/SECURITY.md's "no persistent cache mode" is about the client never
-# inventing a store of its own, not about which Secret Service is running.
-#
-# WHAT IT NEEDS, none of which has to be installed system wide:
-#
-#   Xvfb        xorg-x11-server-Xvfb           $XVFB
-#   $XDP_BUILD  a built frontend, as tools/dev-stack.sh describes
-#   $WEBAUTH_REPO  a checkout of xdg-desktop-portal-webauth (default: sibling directory)
-#   $BACKEND    that repository's built backend
-#   $HELPER     this repository's client
-#
-#     tools/entra-e2e.sh
-#     tools/entra-e2e.sh --keep      # leave the stack up
-#     tools/entra-e2e.sh --verbose   # the client's own breadcrumbs
 
 set -u
 
@@ -78,8 +19,7 @@ TENANT="${TENANT:-8331b18d-2d87-48ef-a35f-ac8818ebf9b4}"
 ACCOUNT="${ACCOUNT:-fixture@mock.invalid}"
 SCOPE="${SCOPE:-https://www.wvd.azure.us/.default}"
 POP_SCOPE="${POP_SCOPE:-ms-device-service://termsrv.wvd.microsoft.com/name/avd-host-1/user_impersonation}"
-# The base64url JSON confirmation object FreeRDP generates. Its content is
-# opaque to this client: it is passed through and must come back inside the token.
+# FreeRDP supplies an opaque base64url req_cnf that must appear in the returned token.
 REQ_CNF="${REQ_CNF:-eyJraWQiOiJPc3FYSmNKSUczRWxROUYxUEN4YXduYnJKYXk0NTVvSWNNQlNJVERnNVdBIn0}"
 
 KEEP=0
@@ -94,7 +34,22 @@ die() {
 . "$REPO/tools/lib.sh"
 
 usage() {
-	sed -n '3,60p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+	cat <<'EOF'
+Usage: tools/entra-e2e.sh [--keep] [--verbose] [-h | --help]
+
+Run the client against a mock authority on a private D-Bus session under Xvfb.
+
+Options:
+  --keep       keep the test stack running after the checks
+  --verbose    enable client debug logs
+  -h, --help   show usage
+
+Requires Python 3, OpenSSL, dbus-run-session, Xvfb and built portal components.
+Environment: XDP_BUILD selects the frontend build; WEBAUTH_REPO selects the backend
+checkout. BACKEND and HELPER override executable paths; XDP_ENV selects an optional
+environment file. XVFB selects the X server; LOGDIR selects a private fixture directory.
+See docs/TESTING.md for setup.
+EOF
 	exit 0
 }
 
@@ -103,7 +58,7 @@ while [ $# -gt 0 ]; do
 	--keep) KEEP=1 ;;
 	--verbose) VERBOSE="--verbose" ;;
 	-h | --help) usage ;;
-	*) die "unknown option '$1'; try --help" ;;
+	*) die "Unknown option '$1'; use --help" ;;
 	esac
 	shift
 done
@@ -122,35 +77,26 @@ command -v python3 >/dev/null || die "python3 not found"
 command -v openssl >/dev/null || die "openssl not found"
 command -v dbus-run-session >/dev/null || die "dbus-run-session not found"
 [ -n "$XVFB" ] || die "Xvfb not found; set \$XVFB"
-[ -x "$BACKEND" ] || die "no backend at $BACKEND; build xdg-desktop-portal-webauth or set BACKEND / WEBAUTH_REPO"
-[ -x "$HELPER" ] || die "no client at $HELPER; run 'meson setup build && ninja -C build' or set HELPER"
-[ -x "$XDP_BUILD/desktop-portal/xdg-desktop-portal" ] || die "no frontend; set XDP_BUILD"
-[ -x "$XDP_BUILD/document-portal/xdg-permission-store" ] || die "no permission store; set XDP_BUILD"
+[ -x "$BACKEND" ] || die "Backend executable missing at $BACKEND; build xdg-desktop-portal-webauth or set BACKEND or WEBAUTH_REPO"
+[ -x "$HELPER" ] || die "Client executable missing at $HELPER; run 'meson setup build && ninja -C build' or set HELPER"
+[ -x "$XDP_BUILD/desktop-portal/xdg-desktop-portal" ] || die "Frontend executable missing; set XDP_BUILD"
+[ -x "$XDP_BUILD/document-portal/xdg-permission-store" ] || die "Permission store executable missing; set XDP_BUILD"
 
 if ldd "$XDP_BUILD/desktop-portal/xdg-desktop-portal" 2>/dev/null | grep -q 'not found'; then
 	ldd "$XDP_BUILD/desktop-portal/xdg-desktop-portal" | grep 'not found' >&2
-	die "the frontend cannot resolve its libraries; set XDP_ENV (docs/TESTING.md)"
+	die "Frontend libraries are unresolved; set XDP_ENV (see docs/TESTING.md)"
 fi
 
 DEVDIR="$LOGDIR/portals"
 (umask 077 && mkdir -p "$DEVDIR")
 xdp_write_portal_dir "$DEVDIR" "$WEBAUTH_REPO" private
 
-# The mock authority's certificate. Throwaway, and nothing on the machine trusts
-# it -- correctly. Two things are told to: the backend, for the web view, with
-# its one --debug-trust-certificate option; and the client, through the
-# [testing] group of a configuration file written below. Neither can be set by
-# an environment variable, which is the point.
+# The fixture certificate is trusted explicitly by the backend flag and the client testing config.
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=localhost \
 	-addext "subjectAltName=DNS:localhost,IP:127.0.0.1" \
 	-keyout "$LOGDIR/mock.key" -out "$LOGDIR/mock.pem" >"$LOGDIR/openssl.log" 2>&1 ||
-	die "could not make a server certificate; see $LOGDIR/openssl.log"
+	die "Fixture certificate creation failed; see $LOGDIR/openssl.log"
 
-# ------------------------------------------------------------ the checks
-#
-# EACH ONE IS A LINE SOMEBODY ELSE WROTE. "A pop grant reached the authority" is
-# a line the MOCK logged, not an inference from the client's exit code, and
-# "the cache was used" is the ABSENCE of one.
 pass=0
 fail=0
 
@@ -191,8 +137,6 @@ check_count() {
 	fi
 }
 
-# The confirmation blob has to come back INSIDE the token, or the token is not
-# bound to the caller's key and the whole PoP exercise proved nothing.
 check_pop_binding() {
 	local file="$1"
 
@@ -209,9 +153,9 @@ claims = json.loads(base64.urlsafe_b64decode(payload))
 sys.exit(0 if claims.get("cnf", {}).get("req_cnf") == sys.argv[2] else 1)
 PY
 	then
-		check "the pop token carries the caller's req_cnf" 0
+		check "PoP req_cnf binding" 0
 	else
-		check "the pop token carries the caller's req_cnf" 1
+		check "PoP req_cnf binding" 1
 	fi
 }
 
@@ -220,21 +164,16 @@ inner() {
 	PERM=$!
 	sleep 1
 
-	# THE FRONTEND GOES UP FIRST. GTK asks the settings portal for a colour
-	# scheme as soon as a backend initialises it, which on a private bus
-	# ACTIVATES org.freedesktop.portal.Desktop -- and activation finds the
-	# SYSTEM portal at /usr/libexec, which then owns the name.
+	# Start the frontend before GTK can activate the system portal through a settings request.
 	"$XDP_BUILD/desktop-portal/xdg-desktop-portal" -v >"$LOGDIR/frontend.log" 2>&1 &
 	FE=$!
 	xdp_wait_for_name org.freedesktop.portal.Desktop "$FE" || {
 		tail -20 "$LOGDIR/frontend.log" >&2
-		echo "${0##*/}: the frontend never took org.freedesktop.portal.Desktop"
+		echo "${0##*/}: Frontend did not acquire org.freedesktop.portal.Desktop"
 		return 40
 	}
 
-	# THE MOCK AUTHORITY. --fail-pop-refresh 1 makes the first
-	# proof-of-possession refresh answer interaction_required, which is the
-	# interstitial Entra shows for the RDS-AAD scope.
+	# The first PoP refresh requires interaction to exercise the RDS-AAD consent flow.
 	rm -f "$LOGDIR/port" "$LOGDIR/events.log"
 	python3 "$REPO/tools/mock-token-endpoint.py" \
 		--cert "$LOGDIR/mock.pem" --key "$LOGDIR/mock.key" \
@@ -246,14 +185,14 @@ inner() {
 		[ -s "$LOGDIR/port" ] && break
 		kill -0 "$MOCK" 2>/dev/null || {
 			cat "$LOGDIR/mock.log" >&2
-			echo "${0##*/}: the mock authority exited"
+			echo "${0##*/}: Mock authority exited before publishing its port"
 			return 40
 		}
 		sleep 0.25
 	done
 	PORT="$(cat "$LOGDIR/port" 2>/dev/null)"
 	[ -n "$PORT" ] || {
-		echo "${0##*/}: the mock authority never reported a port"
+		echo "${0##*/}: Mock authority did not publish a port"
 		return 40
 	}
 
@@ -262,13 +201,11 @@ inner() {
 	BE=$!
 	xdp_wait_for_name org.freedesktop.impl.portal.desktop.webauth "$BE" || {
 		tail -20 "$LOGDIR/backend.log" >&2
-		echo "${0##*/}: the webauth backend never took its bus name"
+		echo "${0##*/}: Webauth backend did not acquire its bus name"
 		return 40
 	}
 
-	# THE CLIENT'S CONFIGURATION FILE. A caller may not widen an allowlist and
-	# no environment variable can; a user's file can, one entry at a time. That
-	# is the only reason this run can point the client at localhost at all.
+	# Only explicit user config entries can extend the authority allowlist for localhost.
 	cat >"$LOGDIR/client.conf" <<EOF
 [allow]
 authorities = localhost:$PORT;
@@ -288,120 +225,116 @@ EOF
 		>"$LOGDIR/login.out" 2>"$LOGDIR/login.err"
 	local rc=$?
 	sed 's/^/    /' "$LOGDIR/login.out" "$LOGDIR/login.err" 2>/dev/null | head -20
-	check "login exited 0" "$([ "$rc" = 0 ] && echo 0 || echo 1)"
-	check_grep "login named the account" "$LOGDIR/login.out" "^Signed in as $ACCOUNT\$"
-	check_grep "the authorization request used PKCE S256" "$LOGDIR/events.log" \
+	check "Login exit 0" "$([ "$rc" = 0 ] && echo 0 || echo 1)"
+	check_grep "Login account label" "$LOGDIR/login.out" "^Signed in as $ACCOUNT\$"
+	check_grep "Authorization PKCE S256" "$LOGDIR/events.log" \
 		'GET authorize .*pkce=S256'
-	check_grep "the authorization request asked to choose an account" "$LOGDIR/events.log" \
+	check_grep "Authorization account selection" "$LOGDIR/events.log" \
 		'GET authorize .*prompt=select_account'
-	check_grep "the code was exchanged" "$LOGDIR/events.log" 'POST token outcome=code_ok pop=no'
-	check_grep "the window opened and completed" "$LOGDIR/backend.log" 'completed'
+	check_grep "Authorization code exchange" "$LOGDIR/events.log" 'POST token outcome=code_ok pop=no'
+	check_grep "Portal completion" "$LOGDIR/backend.log" 'completed'
 
 	echo
 	echo "=== 2. accounts ==="
 	"$HELPER" accounts --config "$LOGDIR/client.conf" >"$LOGDIR/accounts.out" 2>&1
 	sed 's/^/    /' "$LOGDIR/accounts.out"
-	check_grep "the account is listed" "$LOGDIR/accounts.out" "^$ACCOUNT	localhost:$PORT	$TENANT\$"
+	check_grep "Stored account listing" "$LOGDIR/accounts.out" "^$ACCOUNT	localhost:$PORT	$TENANT\$"
 
 	echo
-	echo "=== 3. token, from cache ==="
+	echo "=== 3. cached token ==="
 	cp "$LOGDIR/events.log" "$LOGDIR/events-before-cache.log"
 	"$HELPER" token "${common[@]}" --scope "$SCOPE" --scope openid --scope profile \
 		--scope offline_access --account "$ACCOUNT" --prompt never \
 		>"$LOGDIR/token.out" 2>"$LOGDIR/token.err"
 	rc=$?
-	check "token --prompt never exited 0" "$([ "$rc" = 0 ] && echo 0 || echo 1)"
-	check "the token is a JWT shaped string" \
+	check "Silent token exit 0" "$([ "$rc" = 0 ] && echo 0 || echo 1)"
+	check "Token JWT shape" \
 		"$(grep -qE '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$' "$LOGDIR/token.out" &&
 			echo 0 || echo 1)"
-	# THE CACHE IS THE ABSENCE OF A REQUEST. Nothing new in the authority's log.
-	check "the authority was not called at all" \
+	check "Cached token without authority request" \
 		"$(cmp -s "$LOGDIR/events.log" "$LOGDIR/events-before-cache.log" && echo 0 || echo 1)"
-	check "one line on stdout and nothing else" \
+	check "Single stdout line" \
 		"$([ "$(wc -l <"$LOGDIR/token.out")" = 1 ] && echo 0 || echo 1)"
 
 	echo
-	echo "=== 4. token --req-cnf: the interstitial, then a pop grant ==="
+	echo "=== 4. PoP consent and code grant ==="
 	"$HELPER" token "${common[@]}" --scope "$POP_SCOPE" --account "$ACCOUNT" \
 		--req-cnf "$REQ_CNF" >"$LOGDIR/pop.out" 2>"$LOGDIR/pop.err"
 	rc=$?
 	sed 's/^/    /' "$LOGDIR/pop.err" | head -20
-	check "token --req-cnf exited 0" "$([ "$rc" = 0 ] && echo 0 || echo 1)"
-	check_grep "the pop refresh was refused, needing the human" "$LOGDIR/events.log" \
+	check "PoP token exit 0" "$([ "$rc" = 0 ] && echo 0 || echo 1)"
+	check_grep "PoP refresh requires interaction" "$LOGDIR/events.log" \
 		'POST token outcome=pop_refresh_interaction_required'
-	check_grep "the window opened again for that scope" "$LOGDIR/events.log" \
+	check_grep "PoP interactive authorization" "$LOGDIR/events.log" \
 		'GET authorize .*prompt=- '
-	check_grep "the code was exchanged with a confirmation blob" "$LOGDIR/events.log" \
+	check_grep "Code exchange with req_cnf" "$LOGDIR/events.log" \
 		'POST token outcome=code_ok pop=yes'
-	check_grep "the request declared token_type=pop" "$LOGDIR/events.log" \
+	check_grep "PoP request token_type" "$LOGDIR/events.log" \
 		'POST token .*pop=yes token_type=pop'
 	check_pop_binding "$LOGDIR/pop.out"
 
 	echo
-	echo "=== 5. token --req-cnf again: a pop token is never cached ==="
+	echo "=== 5. uncached PoP token ==="
 	cp "$LOGDIR/events.log" "$LOGDIR/events-before-second-pop.log"
 	"$HELPER" token "${common[@]}" --scope "$POP_SCOPE" --account "$ACCOUNT" \
 		--req-cnf "$REQ_CNF" --json >"$LOGDIR/pop2.out" 2>"$LOGDIR/pop2.err"
 	rc=$?
-	check "the second token --req-cnf exited 0" "$([ "$rc" = 0 ] && echo 0 || echo 1)"
-	check "the authority was called again" \
+	check "Second PoP token exit 0" "$([ "$rc" = 0 ] && echo 0 || echo 1)"
+	check "Second PoP authority request" \
 		"$(cmp -s "$LOGDIR/events.log" "$LOGDIR/events-before-second-pop.log" && echo 1 || echo 0)"
-	check_grep "the json form names the token type" "$LOGDIR/pop2.out" '"token_type" : "pop"'
-	check "no refresh token is anywhere in the response" \
+	check_grep "JSON token type" "$LOGDIR/pop2.out" '"token_type" : "pop"'
+	check "Response excludes refresh token" \
 		"$(grep -q refresh_token "$LOGDIR/pop2.out" && echo 1 || echo 0)"
-	# The second pop request is a refresh grant: the mock only refuses the first.
-	check_grep "the second one came from a refresh grant" "$LOGDIR/events.log" \
+	# The mock requires interaction only for the first PoP refresh.
+	check_grep "Second PoP refresh grant" "$LOGDIR/events.log" \
 		'POST token outcome=refresh_ok pop=yes'
 
 	echo
-	echo "=== 6. logout, and what a request after it does ==="
+	echo "=== 6. logout and silent request ==="
 	"$HELPER" logout --account "$ACCOUNT" --config "$LOGDIR/client.conf" \
 		>"$LOGDIR/logout.out" 2>&1
 	rc=$?
 	sed 's/^/    /' "$LOGDIR/logout.out"
-	check "logout exited 0" "$([ "$rc" = 0 ] && echo 0 || echo 1)"
-	check_grep "logout named what it removed" "$LOGDIR/logout.out" "^Removed $ACCOUNT\$"
+	check "Logout exit 0" "$([ "$rc" = 0 ] && echo 0 || echo 1)"
+	check_grep "Logout account label" "$LOGDIR/logout.out" "^Removed $ACCOUNT\$"
 
 	"$HELPER" accounts --config "$LOGDIR/client.conf" >"$LOGDIR/accounts-after.out" 2>&1
-	check "nothing is listed any more" \
+	check "Empty account listing" \
 		"$([ ! -s "$LOGDIR/accounts-after.out" ] && echo 0 || echo 1)"
 
 	"$HELPER" token "${common[@]}" --scope "$SCOPE" --prompt never \
 		>"$LOGDIR/gone.out" 2>"$LOGDIR/gone.err"
 	rc=$?
-	check "a silent request with no account exits 30" "$([ "$rc" = 30 ] && echo 0 || echo 1)"
-	check "and stdout is empty" "$([ ! -s "$LOGDIR/gone.out" ] && echo 0 || echo 1)"
+	check "Missing account exit 30" "$([ "$rc" = 30 ] && echo 0 || echo 1)"
+	check "Empty stdout" "$([ ! -s "$LOGDIR/gone.out" ] && echo 0 || echo 1)"
 
 	echo
-	echo "=== 7. no portal at all ==="
-	# No backend configured is the DEFAULT STATE OF A MACHINE, and a dispatcher
-	# has to be able to tell it from a refusal. Asked here with no session bus at
-	# all, which the client is required to answer the same way.
+	echo "=== 7. portal unavailable ==="
+	# No session bus and no configured backend must both produce exit 40.
 	env -u DBUS_SESSION_BUS_ADDRESS "$HELPER" login "${common[@]}" --scope "$SCOPE" \
 		>"$LOGDIR/nobus.out" 2>"$LOGDIR/nobus.err"
 	rc=$?
-	check "no bus exits 40" "$([ "$rc" = 40 ] && echo 0 || echo 1)"
-	check_grep "and the message names the interface" "$LOGDIR/nobus.err" \
+	check "Missing bus exit 40" "$([ "$rc" = 40 ] && echo 0 || echo 1)"
+	check_grep "Diagnostic interface name" "$LOGDIR/nobus.err" \
 		'org.freedesktop.portal.experimental.WebAuthentication1'
-	check_grep "and the message names the frontend opt-in" "$LOGDIR/nobus.err" \
+	check_grep "Diagnostic frontend opt-in" "$LOGDIR/nobus.err" \
 		'XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL=WebAuthentication1'
 
 	echo
-	echo "=== what nobody was allowed to write down ==="
-	# A support bundle containing these logs must not let its reader sign in.
+	echo "=== credential redaction ==="
 	local leaked=0
 	for f in "$LOGDIR/login.err" "$LOGDIR/token.err" "$LOGDIR/pop.err" "$LOGDIR/pop2.err"; do
 		[ -s "$f" ] || continue
 		if grep -qE 'code=|code_verifier|refresh_token|eyJ[A-Za-z0-9_-]{20}' "$f"; then
-			echo "  FAIL  a credential reached $f"
+			echo "  FAIL  Credential found in $f"
 			leaked=1
 		fi
 	done
-	check "no code, verifier or token in the client's stderr" "$leaked"
+	check "Credential redaction on stderr" "$leaked"
 
 	if [ "$KEEP" = 1 ]; then
 		echo
-		echo "${0##*/}: --keep: stack up on $DBUS_SESSION_BUS_ADDRESS"
+		echo "${0##*/}: --keep: Test stack running on $DBUS_SESSION_BUS_ADDRESS"
 		echo "  authority  localhost:$PORT"
 		echo "  config     $LOGDIR/client.conf"
 		wait "$FE"
@@ -426,8 +359,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# X11 rather than Wayland, because a headless X server is something a machine
-# with no compositor can start.
 export DISPLAY="$SCREEN"
 unset WAYLAND_DISPLAY
 export GDK_BACKEND=x11
@@ -440,8 +371,7 @@ export XDG_DATA_HOME="$LOGDIR/data-home"
 mkdir -p "$XDG_DATA_HOME"
 export G_MESSAGES_DEBUG="webauth entra"
 
-# libsecret's file backend: no daemon, no bus name, no unlock prompt. See the
-# header. The password is a fixture's, in a directory this run made.
+# The fixture selects libsecret's file backend and supplies its own keyring password.
 export SECRET_BACKEND=file
 export SECRET_FILE_TEST_PATH="$LOGDIR/keyring"
 export SECRET_FILE_TEST_PASSWORD="entra-e2e-fixture"

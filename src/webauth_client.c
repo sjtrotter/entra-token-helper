@@ -37,17 +37,14 @@ const char* entra_webauth_result_str(EntraWebAuthResult result)
 	}
 }
 
-/* The missing backend, the missing bus and the missing portal are one outcome by
- * design: all of them mean "there is nothing here to ask". */
+/* An absent portal interface or session bus maps to unavailable (exit 40). */
 static void entra_webauth_set_unavailable(GError** error)
 {
 	g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_UNAVAILABLE,
-	                    "the web authentication portal is not available.\n"
-	                    "  " ENTRA_PORTAL_INTERFACE "\n"
-	                    "  is experimental and is exported on " ENTRA_PORTAL_OBJECT_PATH "\n"
-	                    "  only when xdg-desktop-portal has a backend configured for it and\n"
-	                    "  was started with XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL=WebAuthentication1.\n"
-	                    "  The same answer covers no portal and no session bus at all.");
+	                    ENTRA_PORTAL_INTERFACE " at " ENTRA_PORTAL_OBJECT_PATH
+	                    " requires a configured backend and "
+	                    "XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL=WebAuthentication1 "
+	                    "in the frontend environment");
 }
 
 gboolean entra_webauth_available(GError** error)
@@ -119,9 +116,7 @@ static gboolean entra_on_deadline(gpointer user_data)
 	return G_SOURCE_REMOVE;
 }
 
-/* The request path the frontend will export, derived from this connection's unique
- * name and the handle_token, so that the Response subscription is in place BEFORE
- * Start is called and a fast completion cannot race it. */
+/* Derive the request path to subscribe before Start can emit Response. */
 static char* entra_request_path(GDBusConnection* bus, const char* token)
 {
 	g_autofree char* sender = g_strdup(g_dbus_connection_get_unique_name(bus) + 1);
@@ -189,13 +184,10 @@ EntraWebAuthResult entra_webauth_start(const char* parent_window, const char* st
 
 		if (g_error_matches(local, G_IO_ERROR, G_IO_ERROR_CANCELLED))
 		{
-			g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_CANCELLED, "cancelled");
+			g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_CANCELLED, "Portal request cancelled");
 			return ENTRA_WEBAUTH_CANCELLED;
 		}
 
-		/* UnknownMethod, UnknownInterface, ServiceUnknown: no backend is
-		 * configured, or nothing owns the name. Every one of them is
-		 * "nothing to ask". */
 		entra_webauth_set_unavailable(error);
 		return ENTRA_WEBAUTH_UNAVAILABLE;
 	}
@@ -222,7 +214,7 @@ EntraWebAuthResult entra_webauth_start(const char* parent_window, const char* st
 	if (run.timed_out)
 	{
 		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_INTERNAL,
-		                    "the portal never answered the request");
+		                    "Portal response deadline exceeded");
 		result = ENTRA_WEBAUTH_OTHER;
 	}
 	else if (run.response == 0)
@@ -230,7 +222,7 @@ EntraWebAuthResult entra_webauth_start(const char* parent_window, const char* st
 		if (run.completion_uri == NULL)
 		{
 			g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_INTERNAL,
-			                    "the portal reported success with no completion URI");
+			                    "Portal success response has no completion URI");
 			result = ENTRA_WEBAUTH_OTHER;
 		}
 		else
@@ -241,14 +233,12 @@ EntraWebAuthResult entra_webauth_start(const char* parent_window, const char* st
 	else if (run.response == 1)
 	{
 		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_CANCELLED,
-		                    "the sign-in window was closed");
+		                    "Sign-in window closed");
 		result = ENTRA_WEBAUTH_CANCELLED;
 	}
 	else
 	{
-		/* A 2 that means "no window could be shown at all" is unavailability and
-		 * a dispatcher should fall through; any other 2 is this client's problem.
-		 * The reason symbol is the only thing that can tell them apart. */
+		/* For response 2, the reason distinguishes portal unavailability from transaction failure. */
 		if (g_strcmp0(run.reason, "no_backend") == 0 ||
 		    g_strcmp0(run.reason, "backend_disappeared") == 0 ||
 		    g_strcmp0(run.reason, "credential_unavailable") == 0 ||
@@ -260,7 +250,7 @@ EntraWebAuthResult entra_webauth_start(const char* parent_window, const char* st
 		else
 		{
 			g_set_error(error, ENTRA_ERROR, ENTRA_ERROR_INTERNAL,
-			            "the portal ended the transaction: %s",
+			            "Portal transaction ended: %s",
 			            run.reason != NULL ? run.reason : "no reason given");
 			result = ENTRA_WEBAUTH_OTHER;
 		}

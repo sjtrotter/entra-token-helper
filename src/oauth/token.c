@@ -12,10 +12,7 @@
 #include "../log/redact.h"
 #include "token.h"
 
-/* The authorization server's ways of saying "ask the human". A refresh token that
- * has expired, been revoked, or lost its Conditional Access claim arrives as
- * invalid_grant, and treating that as a hard failure is what makes a client feel
- * broken a fortnight after it was set up. */
+/* Expired, revoked or policy-invalid refresh tokens can return invalid_grant and require sign-in. */
 static gboolean entra_error_is_interactive(const char* code)
 {
 	static const char* const interactive[] = { "invalid_grant",  "interaction_required",
@@ -79,7 +76,7 @@ gboolean entra_token_set_from_json(const char* document, gsize length, EntraToke
 	if (!json_parser_load_from_data(parser, document, (gssize)length, NULL))
 	{
 		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_SERVER,
-		                    "the token endpoint did not answer with JSON");
+		                    "Token endpoint response is not valid JSON");
 		return FALSE;
 	}
 
@@ -87,7 +84,7 @@ gboolean entra_token_set_from_json(const char* document, gsize length, EntraToke
 	if (root == NULL || !JSON_NODE_HOLDS_OBJECT(root))
 	{
 		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_SERVER,
-		                    "the token endpoint did not answer with an object");
+		                    "Token endpoint response must be a JSON object");
 		return FALSE;
 	}
 
@@ -103,10 +100,10 @@ gboolean entra_token_set_from_json(const char* document, gsize length, EntraToke
 		if (oauth_error != NULL)
 			*oauth_error = g_strdup(code);
 
-		/* The message carries the CODE and never the description. */
+		/* Server error_description can contain account details and must stay out of errors and logs. */
 		g_set_error(error, ENTRA_ERROR,
 		            interactive ? ENTRA_ERROR_INTERACTION_REQUIRED : ENTRA_ERROR_SERVER,
-		            "the authority refused: %s%s%s", code, suberror != NULL ? "/" : "",
+		            "Authority refused the token request: %s%s%s", code, suberror != NULL ? "/" : "",
 		            suberror != NULL ? suberror : "");
 		return FALSE;
 	}
@@ -114,7 +111,7 @@ gboolean entra_token_set_from_json(const char* document, gsize length, EntraToke
 	if (entra_json_string(object, "access_token") == NULL)
 	{
 		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_SERVER,
-		                    "the token endpoint returned no access token");
+		                    "Token endpoint response has no access token");
 		return FALSE;
 	}
 
@@ -147,6 +144,7 @@ static gboolean entra_token_post(EntraHttp* http, const char* token_endpoint, GH
 	                g_hash_table_lookup(form, "grant_type"), "pop", ENTRA_FIELD_OUTCOME,
 	                g_hash_table_contains(form, "req_cnf") ? "yes" : "no", NULL);
 
+	/* Token responses, including ID tokens, arrive over validated TLS from the selected endpoint. */
 	response = entra_http_post_form(http, token_endpoint, body, &status, cancellable, error);
 	memset(body, 0, strlen(body));
 
@@ -162,13 +160,13 @@ static gboolean entra_token_post(EntraHttp* http, const char* token_endpoint, GH
 	return TRUE;
 }
 
+/* The caller retains the private key; req_cnf carries only its confirmation object. */
 static void entra_form_add_pop(GHashTable* form, const char* req_cnf)
 {
 	if (req_cnf == NULL)
 		return;
 
-	/* See token.h: both, because MSAL sends both and the hardware run proved
-	 * req_cnf alone is enough. */
+	/* PoP grants send req_cnf and token_type=pop, matching MSAL; Entra also accepts req_cnf alone. */
 	g_hash_table_insert(form, (gpointer) "token_type", (gpointer) "pop");
 	g_hash_table_insert(form, (gpointer) "req_cnf", (gpointer)req_cnf);
 }

@@ -1,48 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # SPDX-FileCopyrightText: 2026 Stephen J. Trotter <stephen.j.trotter@gmail.com>
-#
-# mock-token-endpoint.py -- an Entra ID shaped authority, with no Entra ID.
-#
-# It is the authority tools/entra-e2e.sh signs in against, so that the whole of
-# the client -- discovery, the authorization request through the portal, the
-# code exchange, the refresh, the proof-of-possession variant and the keyring --
-# can be driven with nothing real behind it. NOTHING HERE VERIFIES AN IDENTITY:
-# it is a protocol fixture, and the tokens it mints are strings.
-#
-# WHAT IT SERVES, at the same shape a tenant does:
-#
-#   GET  /<tenant>/v2.0/.well-known/openid-configuration
-#        the discovery document, naming endpoints ON THIS HOST -- which is what
-#        the client checks before it will use them.
-#   GET  /<tenant>/oauth2/v2.0/authorize
-#        records the code_challenge against a fresh code and redirects to the
-#        redirect_uri with ?code=&state=. That redirect is the nativeclient URL,
-#        so what actually happens is that the portal's backend intercepts the
-#        navigation before it is loaded and the code never leaves the machine.
-#   POST /<tenant>/oauth2/v2.0/token
-#        grant_type=authorization_code, verifying S256 against the challenge the
-#        /authorize call recorded, and grant_type=refresh_token. With req_cnf
-#        the response is "token_type":"pop" carrying the confirmation blob back,
-#        and NO refresh token -- the shape observed on hardware.
-#
-# HOW A TEST STEERS IT
-#
-#   --fail-pop-refresh N  the first N proof-of-possession REFRESH grants answer
-#                         interaction_required. That is the interstitial: Entra
-#                         asks the human before it will mint an RDS-AAD token,
-#                         and the client has to fall back to a full interactive
-#                         authorize for that scope. The authorization_code grant
-#                         is never failed this way, so the fallback can succeed.
-#   --fail-refresh N      the first N ordinary refresh grants answer
-#                         invalid_grant, which is how an expired or revoked
-#                         refresh token arrives.
-#   --event-log FILE      one line per request: the METHOD, the path, the grant
-#                         type and whether it was a PoP request. NEVER a code,
-#                         a verifier, a token or a challenge.
-#
-# The event log is what tools/entra-e2e.sh asserts on: "a pop grant hit the
-# mock" is a line the SERVER wrote, not an inference from the client's exit code.
+# This authority is a protocol fixture and verifies no identities.
 
 import argparse
 import base64
@@ -64,7 +23,7 @@ def b64url(data):
 
 
 def jwt(payload):
-    """A JWT shaped string. The signature is the word 'signature': nothing reads it."""
+    # Fixture tokens carry a dummy signature.
     header = b64url(json.dumps({"alg": "RS256", "typ": "JWT"}).encode("utf-8"))
     body = b64url(json.dumps(payload).encode("utf-8"))
     return f"{header}.{body}.{b64url(b'signature')}"
@@ -92,7 +51,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
-    # ------------------------------------------------------------------ output
+    # Events exclude credential values and PKCE challenges.
     def _record(self, note):
         path = self.server.event_log
         if not path:
@@ -122,7 +81,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
-    # --------------------------------------------------------------------- GET
     def do_GET(self):  # noqa: N802
         parsed = urllib.parse.urlsplit(self.path)
         parts = [p for p in parsed.path.split("/") if p]
@@ -163,8 +121,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
         state = one("state")
         scope = one("scope") or ""
 
-        # The shape of the request is checked, because a client that stopped
-        # sending PKCE would otherwise still pass the whole run.
         problems = []
         if one("response_type") != "code":
             problems.append("response_type")
@@ -189,7 +145,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         )
 
         if problems:
-            self._text("<html><body>bad authorization request</body></html>", status=400)
+            self._text("<html><body>Invalid authorization request</body></html>", status=400)
             return
 
         code = secrets.token_urlsafe(24)
@@ -201,13 +157,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         }
 
         joiner = "&" if "?" in redirect else "?"
+        # The portal intercepts nativeclient navigation before the code leaves the machine.
         self._redirect(
             redirect
             + joiner
             + urllib.parse.urlencode({"code": code, "state": state})
         )
 
-    # -------------------------------------------------------------------- POST
     def do_POST(self):  # noqa: N802
         parsed = urllib.parse.urlsplit(self.path)
         parts = [p for p in parsed.path.split("/") if p]
@@ -315,9 +271,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
             "scp": scope,
         }
         if req_cnf:
-            # The confirmation blob comes back inside the token, which is what
-            # makes "this token is bound to the key FreeRDP generated" checkable
-            # from the outside.
             claims["cnf"] = {"req_cnf": req_cnf}
 
         response = {
@@ -341,12 +294,12 @@ class Server(http.server.ThreadingHTTPServer):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="An Entra ID shaped mock authority")
+    parser = argparse.ArgumentParser(description="Mock Entra ID authority for protocol tests")
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--cert", required=True)
     parser.add_argument("--key", required=True)
     parser.add_argument("--account", default="fixture@mock.invalid")
-    parser.add_argument("--host", default="localhost", help="the host name it names itself by")
+    parser.add_argument("--host", default="localhost", help="Host name advertised in discovery endpoints")
     parser.add_argument("--fail-pop-refresh", type=int, default=0)
     parser.add_argument("--fail-refresh", type=int, default=0)
     parser.add_argument("--event-log")
@@ -371,7 +324,7 @@ def main():
         with open(args.port_file, "w", encoding="utf-8") as handle:
             handle.write(str(port))
 
-    sys.stderr.write("listening port=%d host=%s\n" % (port, server.public_host))
+    sys.stderr.write("Mock authority listening: port=%d host=%s\n" % (port, server.public_host))
     sys.stderr.flush()
 
     thread = threading.Thread(target=server.serve_forever, daemon=True)

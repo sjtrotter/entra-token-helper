@@ -18,7 +18,7 @@ gboolean entra_endpoints_derive(const EntraAuthority* authority, EntraEndpoints*
 
 	if (authority == NULL || authority->base == NULL)
 	{
-		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_USAGE, "no authority");
+		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_USAGE, "Authority is required");
 		return FALSE;
 	}
 
@@ -38,8 +38,7 @@ char* entra_discovery_url(const EntraAuthority* authority)
 	return g_strconcat(authority->base, "/v2.0/.well-known/openid-configuration", NULL);
 }
 
-/* https, and on the authority's own host. Anything else is discarded rather than
- * used: a discovery document is not a licence to move the exchange. */
+/* Discovered endpoints require HTTPS and the authority's host and port to prevent credential redirection. */
 static char* entra_endpoint_accept(JsonObject* object, const char* member,
                                    const char* expected_host)
 {
@@ -88,7 +87,7 @@ gboolean entra_endpoints_parse_document(const char* document, gsize length,
 	if (!json_parser_load_from_data(parser, document, (gssize)length, NULL))
 	{
 		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_SERVER,
-		                    "the OpenID configuration is not JSON");
+		                    "OpenID configuration is not valid JSON");
 		return FALSE;
 	}
 
@@ -96,7 +95,7 @@ gboolean entra_endpoints_parse_document(const char* document, gsize length,
 	if (root == NULL || !JSON_NODE_HOLDS_OBJECT(root))
 	{
 		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_SERVER,
-		                    "the OpenID configuration is not an object");
+		                    "OpenID configuration must be a JSON object");
 		return FALSE;
 	}
 
@@ -107,7 +106,7 @@ gboolean entra_endpoints_parse_document(const char* document, gsize length,
 	if (authorize == NULL || token == NULL)
 	{
 		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_SERVER,
-		                    "the OpenID configuration names no usable endpoint on this authority");
+		                    "OpenID configuration endpoints must use HTTPS on the authority host and port");
 		return FALSE;
 	}
 
@@ -128,7 +127,7 @@ gboolean entra_endpoints_discover(EntraHttp* http, const EntraAuthority* authori
 
 	if (url == NULL)
 	{
-		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_USAGE, "no authority");
+		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_USAGE, "Authority is required");
 		return FALSE;
 	}
 

@@ -1,8 +1,5 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later
  * SPDX-FileCopyrightText: 2026 Stephen J. Trotter <stephen.j.trotter@gmail.com>
- *
- * The callback classifier: every way a URI that reached the completion can still
- * fail to be this transaction's authorization response.
  */
 
 #include <string.h>
@@ -93,7 +90,7 @@ static void test_userinfo_is_refused(Fixture* fixture, gconstpointer data)
 	                    "nativeclient?code=x&state=%s",
 	                    entra_transaction_state(fixture->transaction));
 
-	/* It is a different host, so it never gets as far as the userinfo rule. */
+	/* The userinfo changes the parsed host to evil.invalid. */
 	g_assert_cmpint(entra_callback_classify(fixture->transaction, url, NULL, NULL), ==,
 	                ENTRA_CALLBACK_UNRELATED);
 }
@@ -133,8 +130,6 @@ static void test_two_states_are_refused(Fixture* fixture, gconstpointer data)
 	                ENTRA_CALLBACK_INVALID);
 }
 
-/* A bare "code" is an occurrence. Without this rule a second code can be
- * smuggled past a classifier that only looks at the first one it finds. */
 static void test_a_bare_second_code_is_refused(Fixture* fixture, gconstpointer data)
 {
 	g_autofree char* url = url_with(fixture, "code=good&code");

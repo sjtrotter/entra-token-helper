@@ -28,6 +28,7 @@ EntraHttp* entra_http_new(EntraConfig* config, GError** error)
 	soup_session_set_idle_timeout(self->session, 1);
 	soup_session_set_user_agent(self->session, "entra-token-helper/" ENTRA_VERSION " ");
 
+	/* TLS validation is required; the configured fixture trust store replaces system trust. */
 	if (anchor != NULL)
 	{
 		g_autoptr(GTlsDatabase) database = g_tls_file_database_new(anchor, error);
@@ -44,6 +45,7 @@ EntraHttp* entra_http_new(EntraConfig* config, GError** error)
 	return self;
 }
 
+/* Queries and HTTP bodies can contain credentials and must never be logged. */
 static GBytes* entra_http_send(EntraHttp* self, SoupMessage* message, guint* status_out,
                                GCancellable* cancellable, GError** error)
 {
@@ -58,7 +60,7 @@ static GBytes* entra_http_send(EntraHttp* self, SoupMessage* message, guint* sta
 	{
 		g_autofree char* safe = entra_redact_error_text(local != NULL ? local->message : NULL);
 
-		g_set_error(error, ENTRA_ERROR, ENTRA_ERROR_UNAVAILABLE, "the authority is unreachable: %s",
+		g_set_error(error, ENTRA_ERROR, ENTRA_ERROR_UNAVAILABLE, "Authority is unreachable: %s",
 		            safe);
 		return NULL;
 	}
@@ -77,7 +79,7 @@ GBytes* entra_http_get(EntraHttp* self, const char* url, GCancellable* cancellab
 
 	if (message == NULL)
 	{
-		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_INTERNAL, "could not build a request");
+		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_INTERNAL, "HTTP request creation failed");
 		return NULL;
 	}
 
@@ -89,7 +91,7 @@ GBytes* entra_http_get(EntraHttp* self, const char* url, GCancellable* cancellab
 	{
 		g_autofree char* code = g_strdup_printf("%u", status);
 
-		g_set_error(error, ENTRA_ERROR, ENTRA_ERROR_UNAVAILABLE, "the authority answered HTTP %s",
+		g_set_error(error, ENTRA_ERROR, ENTRA_ERROR_UNAVAILABLE, "Authority returned HTTP %s",
 		            code);
 		return NULL;
 	}
@@ -105,7 +107,7 @@ GBytes* entra_http_post_form(EntraHttp* self, const char* url, const char* body,
 
 	if (message == NULL)
 	{
-		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_INTERNAL, "could not build a request");
+		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_INTERNAL, "HTTP request creation failed");
 		return NULL;
 	}
 

@@ -9,7 +9,7 @@
 #include "../entra-error.h"
 #include "clouds.h"
 
-/* THE REDIRECT IS THE SAME STRING IN BOTH ROWS. See clouds.h. */
+/* Both cloud registrations require the commercial nativeclient redirect; .us yields AADSTS50011. */
 static const EntraCloud entra_clouds[] = {
 	{ "commercial", "login.microsoftonline.com", "https://www.wvd.microsoft.com/.default",
 	  ENTRA_NATIVECLIENT_REDIRECT },
@@ -64,8 +64,6 @@ gboolean entra_cloud_client_id_allowed(const char* client_id, EntraConfig* confi
 	return entra_config_allows_client_id(config, client_id);
 }
 
-/* A tenant identifier, or a host: ASCII alphanumerics, '-', '.', and for a host
- * a ':' before a port. Not all dots, bounded length. */
 static gboolean entra_label_valid(const char* value, gboolean allow_port)
 {
 	gboolean any = FALSE;
@@ -121,7 +119,7 @@ gboolean entra_authority_parse(const char* authority, const char* tenant, EntraA
 		if (g_strcmp0(g_uri_get_scheme(uri), "https") != 0)
 		{
 			g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_USAGE,
-			                    "--authority must be https");
+			                    "--authority must use HTTPS");
 			return FALSE;
 		}
 
@@ -129,7 +127,7 @@ gboolean entra_authority_parse(const char* authority, const char* tenant, EntraA
 		    g_uri_get_fragment(uri) != NULL)
 		{
 			g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_USAGE,
-			                    "--authority takes no userinfo, query or fragment");
+			                    "--authority must exclude userinfo and query or fragment components");
 			return FALSE;
 		}
 
@@ -159,7 +157,7 @@ gboolean entra_authority_parse(const char* authority, const char* tenant, EntraA
 		if (count > 1)
 		{
 			g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_USAGE,
-			                    "--authority may name a tenant and nothing deeper");
+			                    "--authority path may contain only a tenant");
 			return FALSE;
 		}
 	}
@@ -168,7 +166,7 @@ gboolean entra_authority_parse(const char* authority, const char* tenant, EntraA
 		if (strchr(authority, '/') != NULL)
 		{
 			g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_USAGE,
-			                    "--authority is a host or an https URL, not a path");
+			                    "--authority must be a host or an HTTPS URL");
 			return FALSE;
 		}
 
@@ -184,7 +182,7 @@ gboolean entra_authority_parse(const char* authority, const char* tenant, EntraA
 
 	if (!entra_label_valid(host, TRUE))
 	{
-		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_USAGE, "--authority is not a host");
+		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_USAGE, "--authority host is invalid");
 		return FALSE;
 	}
 
@@ -194,7 +192,7 @@ gboolean entra_authority_parse(const char* authority, const char* tenant, EntraA
 	if (!entra_label_valid(out->tenant, FALSE) || g_strcmp0(out->tenant, ".") == 0 ||
 	    g_strcmp0(out->tenant, "..") == 0)
 	{
-		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_USAGE, "--tenant is not a tenant");
+		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_USAGE, "--tenant identifier is invalid");
 		entra_authority_clear(out);
 		return FALSE;
 	}

@@ -11,8 +11,7 @@
 #include "../log/redact.h"
 #include "transaction.h"
 
-/* RFC 7636 puts the verifier between 43 and 128 characters. 64 random bytes is
- * 86 base64url characters: comfortably inside the range and 512 bits of entropy. */
+/* 64 random bytes encode to 86 characters, within RFC 7636's 43 to 128 character verifier limit. */
 #define ENTRA_VERIFIER_BYTES 64
 #define ENTRA_STATE_BYTES 32
 
@@ -26,7 +25,6 @@ struct EntraTransaction
 	gboolean consumed;
 };
 
-/* base64url with the padding removed, which is what both RFC 7636 and Entra want. */
 static char* entra_base64url(const guchar* data, gsize length)
 {
 	g_autofree char* standard = g_base64_encode(data, length);
@@ -46,10 +44,7 @@ static char* entra_base64url(const guchar* data, gsize length)
 	return out;
 }
 
-/* THE KERNEL'S BYTES OR NOTHING. g_random_int() is a Mersenne twister: fine for
- * a jitter, useless for a `state` an attacker must not be able to guess. A
- * client that cannot read /dev/urandom does not quietly use a weaker source, it
- * fails. */
+/* State and PKCE verifiers require kernel randomness; failure must not use a weaker source. */
 static char* entra_random_base64url(gsize bytes, GError** error)
 {
 	g_autofree guchar* buffer = g_malloc0(bytes);
@@ -61,7 +56,7 @@ static char* entra_random_base64url(gsize bytes, GError** error)
 	stream = g_file_read(urandom, NULL, error);
 	if (stream == NULL)
 	{
-		g_prefix_error(error, "no random source: ");
+		g_prefix_error(error, "Random source unavailable: ");
 		return NULL;
 	}
 
@@ -70,7 +65,7 @@ static char* entra_random_base64url(gsize bytes, GError** error)
 	{
 		if (error != NULL && *error == NULL)
 			g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_INTERNAL,
-			                    "short read from the random source");
+			                    "Random source returned too few bytes");
 		return NULL;
 	}
 
@@ -99,7 +94,7 @@ EntraTransaction* entra_transaction_new(const char* redirect_uri, guint timeout_
 	if (redirect_uri == NULL || *redirect_uri == '\0')
 	{
 		g_set_error_literal(error, ENTRA_ERROR, ENTRA_ERROR_INTERNAL,
-		                    "a transaction needs a redirect URI");
+		                    "Transaction requires a redirect URI");
 		return NULL;
 	}
 
@@ -158,9 +153,7 @@ gboolean entra_transaction_state_equal(EntraTransaction* self, const char* candi
 	theirs = strlen(candidate);
 	span = MAX(mine, theirs);
 
-	/* No early return anywhere: every byte of the longer string is read whatever
-	 * happens, so the time this takes does not say where the first difference
-	 * was. A length mismatch is folded in as a difference rather than checked. */
+	/* Length differences and every byte contribute without revealing the first mismatch. */
 	difference = (guchar)((mine ^ theirs) != 0);
 
 	for (gsize i = 0; i < span; i++)

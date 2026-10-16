@@ -1,8 +1,5 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later
  * SPDX-FileCopyrightText: 2026 Stephen J. Trotter <stephen.j.trotter@gmail.com>
- *
- * The cache key, and the account record's round trip through JSON. Anything
- * missing from the key is a token returned to the wrong requester.
  */
 
 #include <string.h>
@@ -40,8 +37,6 @@ static void test_the_key_de_duplicates(void)
 	g_assert_cmpstr(first, ==, "openid");
 }
 
-/* One --scope carrying a space separated list and several --scope options are the
- * same request, so they must be the same key. */
 static void test_the_key_splits_on_whitespace(void)
 {
 	const char* const joined[] = { "openid profile\toffline_access", NULL };
@@ -113,8 +108,6 @@ static void test_a_record_survives_json(void)
 	g_assert_cmpstr(token->token_type, ==, "Bearer");
 }
 
-/* A token that expires while the connection is being set up is a token that was
- * not there. The margin is five minutes. */
 static void test_a_token_inside_the_margin_is_a_miss(void)
 {
 	g_autoptr(EntraAccountRecord) record = entra_account_record_new();
@@ -128,7 +121,6 @@ static void test_a_token_inside_the_margin_is_a_miss(void)
 	                                 now + ENTRA_TOKEN_EXPIRY_MARGIN_SECONDS + 60);
 	g_assert_nonnull(entra_account_record_lookup(record, "s"));
 
-	/* A different scope set is a different key, and never a hit. */
 	g_assert_null(entra_account_record_lookup(record, "s openid"));
 }
 
@@ -176,7 +168,6 @@ static void test_errors_are_classified(void)
 	g_assert_cmpint(entra_status_from_error(foreign), ==, ENTRA_STATUS_INTERNAL);
 }
 
-/* The response object never carries a refresh token, whatever else it carries. */
 static void test_the_response_object(void)
 {
 	g_autofree char* ok =
@@ -207,10 +198,10 @@ int main(int argc, char** argv)
 	g_test_add_func("/cache/record-json", test_a_record_survives_json);
 	g_test_add_func("/cache/margin", test_a_token_inside_the_margin_is_a_miss);
 	g_test_add_func("/cache/expired", test_an_expired_token_is_a_miss);
-	g_test_add_func("/cache/rubbish", test_rubbish_records);
+	g_test_add_func("/cache/invalid-record-rejected", test_rubbish_records);
 	g_test_add_func("/status/exit-codes", test_exit_codes_are_the_documented_ones);
 	g_test_add_func("/status/classify", test_errors_are_classified);
-	g_test_add_func("/status/response", test_the_response_object);
+	g_test_add_func("/status/response-fields-and-credential-exclusion", test_the_response_object);
 
 	return g_test_run();
 }

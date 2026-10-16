@@ -1,7 +1,5 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later
  * SPDX-FileCopyrightText: 2026 Stephen J. Trotter <stephen.j.trotter@gmail.com>
- *
- * PKCE, the state value, and the promise that a transaction answers once.
  */
 
 #include <string.h>
@@ -12,7 +10,7 @@
 
 #define REDIRECT "https://login.microsoftonline.com/common/oauth2/nativeclient"
 
-/* RFC 7636 appendix B: the verifier and the challenge it must produce. */
+/* The verifier and expected challenge are from RFC 7636, appendix B. */
 static void test_s256_matches_the_rfc_vector(void)
 {
 	g_autofree char* challenge =
@@ -43,7 +41,7 @@ static void test_a_transaction_is_fresh_every_time(void)
 	g_assert_cmpstr(entra_transaction_state(one), !=, entra_transaction_state(two));
 	g_assert_cmpstr(entra_transaction_verifier(one), !=, entra_transaction_verifier(two));
 
-	/* 32 random bytes and 64 random bytes, base64url, unpadded. */
+	/* 32 state bytes and 64 verifier bytes are encoded as unpadded base64url. */
 	g_assert_cmpuint(strlen(entra_transaction_state(one)), ==, 43);
 	g_assert_cmpuint(strlen(entra_transaction_verifier(one)), ==, 86);
 
