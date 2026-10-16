@@ -414,6 +414,8 @@ int main(int argc, char** argv)
 	const char* prompt = NULL;
 	int rc = entra_status_exit_code(ENTRA_STATUS_USAGE);
 
+	entra_log_init();
+
 	request.prompt = ENTRA_PROMPT_AUTO;
 	request.scopes = g_ptr_array_new();
 

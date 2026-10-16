@@ -41,18 +41,17 @@ connection attempt.
 | `--json` | all | JSON output: success on stdout; operational errors on stderr. |
 | `--format {raw,json}` | all | `json` is equivalent to `--json`; `raw` is the default. |
 | `--config <path>` | all | Configuration path, overriding `ENTRA_TOKEN_HELPER_CONFIG`. |
-| `--verbose` | all | Allow debug diagnostics with the same redaction rules; see [output](#output) for GLib's environment requirement and stdout limitation. |
+| `--verbose` | all | Allow debug diagnostics on stderr with the same redaction rules; see [output](#output) for GLib's environment requirement. |
 | `--help`, `--version` | all | Print help or version and exit `0`. |
 
 ## Output
 
-Successful results use stdout; operational errors use stderr. Debug logging requires both
+Successful results use stdout; operational errors and all enabled log levels use stderr.
+Debug logging requires both
 `--verbose` and GLib's `entra` debug domain enabled, for example with `G_MESSAGES_DEBUG=entra`
-or `G_MESSAGES_DEBUG=all`. GLib's default handler sends enabled DEBUG
-messages to stdout, which can contaminate raw tokens or JSON, including on a non-zero exit.
-`--verbose` alone does not enable GLib's debug output. Until
-[issue #4](https://github.com/sjtrotter/entra-token-helper/issues/4) is fixed, keep debug logging
-disabled when consuming stdout as a token or JSON.
+or `G_MESSAGES_DEBUG=all`. `--verbose` alone does not enable GLib's debug output. Debug and
+informational messages retain GLib's domain filtering. Logs leave raw token and JSON output
+on stdout unchanged, including on a non-zero exit.
 
 ### Plain form
 
@@ -336,8 +335,7 @@ Within `"schema": 1`:
 
 - Verb names, option names and meanings remain stable.
 - Exit codes retain their meanings and are never reused for different conditions.
-- Plain `token` output remains the token followed by a newline, subject to the
-  [debug logging limitation](#output).
+- Plain `token` output remains the token followed by a newline, including with debug logging.
 - Optional options and JSON fields may be added. Consumers must ignore unknown fields.
 - New exit codes may describe additional conditions. Treat unknown non-zero codes as hard errors.
 - `status` and `error` symbols are stable. `message` text can change and must not be parsed.

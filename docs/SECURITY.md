@@ -78,7 +78,7 @@ Diagnostics must exclude raw access tokens, refresh tokens, ID tokens and JWTs; 
 codes; PKCE verifiers and challenges; `state`; completion URIs and authorization-server query
 strings; `error_description`; token-endpoint response bodies; cookies; and `Authorization`
 headers. The same restrictions apply with `--verbose`. The [CLI output contract](CLI.md#output)
-defines successful token output, debug enablement and the stdout limitation.
+defines successful token output and debug enablement. All enabled log levels use stderr.
 
 Debug diagnostics may contain callback outcome symbols (`CODE`, `ERROR`, `UNRELATED`, `INVALID`),
 authority hosts, OAuth error codes such as `invalid_grant`, `interaction_required` and

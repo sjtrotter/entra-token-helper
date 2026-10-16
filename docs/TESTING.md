@@ -10,15 +10,15 @@ Build dependencies are GLib, GObject and GIO 2.76 or later, libsoup-3 3.0 or lat
 or later, and libsecret 0.20 or later. Meson requires version 0.60.0 or later; Ninja builds the C11
 project.
 
-`meson.build` declares GLib, GObject and GIO 2.66, but `src/cache/keyring.c` uses
-`g_ptr_array_sort_values`, available since GLib 2.76. Meson's minimum is underdeclared;
-[issue #4](https://github.com/sjtrotter/entra-token-helper/issues/4) tracks the discrepancy.
+Meson requires GLib, GObject and GIO 2.76 for `g_ptr_array_sort_values` in `src/cache/keyring.c`.
+`GLIB_VERSION_MIN_REQUIRED` and `GLIB_VERSION_MAX_ALLOWED` are set to `GLIB_VERSION_2_76` so
+compilation flags use of newer GLib APIs.
 
 ```console
 $ meson setup build && ninja -C build && meson test -C build
 ```
 
-`tests/meson.build` registers 68 cases across six executables in the `unit` suite with TAP output:
+`tests/meson.build` registers 72 cases across six executables in the `unit` suite with TAP output:
 
 | Test | Coverage |
 |---|---|
@@ -27,7 +27,7 @@ $ meson setup build && ninja -C build && meson test -C build
 | `jwt` | Account-claim selection, malformed token rejection, control-character rejection |
 | `discovery` | Cloud table, client-id allowlist, authority parsing, derived endpoints, discovery refinement, HTTPS and host restrictions, authorization URLs, token responses and error classification |
 | `cache` | Sorted and deduplicated scope keys, equivalent scope spellings, five-minute expiry margin, JSON round trips, exit codes |
-| `redact` | Credential and description redaction, tenant hashing, unchanged redaction with verbose logging |
+| `redact` | Credential and description redaction, tenant hashing, stderr-only legacy and structured logs, debug domain and verbose filtering |
 
 ## End-to-end tests
 
@@ -53,7 +53,7 @@ $ WEBAUTH_REPO=../xdg-desktop-portal-webauth XDP_BUILD=../xdg-desktop-portal/bui
 
 `REPO` is the script's repository root. `--keep` leaves the stack running and prints the generated
 configuration path and authority. The script sets `G_MESSAGES_DEBUG="webauth entra"`;
-`--verbose` enables client debug output, subject to the [stdout limitation](CLI.md#output).
+`--verbose` enables client debug output on [stderr](CLI.md#output).
 `--help` prints usage.
 
 The script starts `xdg-permission-store`, the frontend, the webauth backend and
