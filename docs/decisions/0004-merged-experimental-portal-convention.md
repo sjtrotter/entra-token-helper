@@ -6,7 +6,7 @@ Status: accepted
 ## Context
 
 xdg-desktop-portal merged experimental portal support in PR #2129, corrected by
-#2173 (upstream main 8eba842). The integration frontend follows this convention.
+#2173. The integration frontend follows this convention.
 
 ## Decision
 
@@ -25,8 +25,8 @@ increment the `version` property.
 
 ## Consequences
 
-The main portal object uses the standard path. Request and Session handle paths
-remain unchanged. An unavailable web authentication interface still produces exit
-`40`; its diagnostic names the interface and the required frontend opt-in and backend.
+The main portal object uses the standard path. Request and Session handles use
+`/request/...` and `/session/...` under that path. An unavailable web authentication interface
+produces exit `40`; its diagnostic names the interface and the required frontend opt-in and backend.
 
 This supersedes ADR 0003's web authentication interface name.

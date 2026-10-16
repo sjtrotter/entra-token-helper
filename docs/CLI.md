@@ -1,73 +1,73 @@
 # Entra client CLI contract
 
-This is the contract for `entra-token-helper`, the Entra ID / AVD token client: the interface
-FreeRDP frontends and other programs are expected to depend on. What the client is, and what has
-been proven about it, are in [README.md](../README.md); everything below is implemented and
-exercised, against a mock authority by `tools/entra-e2e.sh` and against a real tenant by hand.
+`entra-token-helper` provides Entra ID / AVD tokens to RDP clients and other programs. See
+[README.md](../README.md) for status and [Testing](TESTING.md) for mock and live evidence.
+The client calls the public portal on `org.freedesktop.portal.Desktop`; it does not select a
+backend. The portal's
+[public interface](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/PUBLIC-INTERFACE.md)
+and
+[frontend/backend architecture](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/decisions/0008-build-to-the-upstream-shape.md)
+are independent of CLI verbs, exit codes and fields.
 
-The web authentication portal the client calls when it needs a window has its own contract, in its
-own project:
-[PUBLIC-INTERFACE.md](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/PUBLIC-INTERFACE.md).
-The two are independent and versioned separately.
-
-The client calls xdg-desktop-portal, on `org.freedesktop.portal.Desktop`, and nothing
-else. That the portal is internally a frontend and a backend
-([decisions/0008](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/decisions/0008-build-to-the-upstream-shape.md))
-is invisible here: no verb, exit code or field below changed when the split was made, and none would
-change again if a machine installed a different backend.
-
-It is versioned: the JSON objects carry `"schema": 1`, and the compatibility promise at the end of
-this document says what may change without a bump.
+JSON objects carry `"schema": 1`; see the [compatibility promise](#compatibility-promise).
 
 ## Verbs
 
 | Verb | Purpose | Interactive? |
 |---|---|---|
-| `login` | Establish an account: run an interactive sign-in through the portal and store the resulting refresh token. Does not print an access token. | Always |
-| `token` | Acquire an access token. Silent if possible, interactive if permitted. | Depends on `--prompt` and cache state |
+| `login` | Sign in and store an account and refresh token. Prints no access token. | Always |
+| `token` | Acquire a bearer or proof-of-possession access token. | Depends on `--prompt` and cache state |
 | `accounts` | List stored accounts. | Never |
-| `logout` | Forget one account or all accounts: remove refresh tokens and account records from the keyring. | Never |
+| `logout` | Remove one account or all accounts and their keyring credentials. | Never |
 
-`token` is the verb FreeRDP's callback shim calls. `login`, `accounts` and `logout` exist so a
-human can manage state without a connection in flight.
+A token-provider callback can invoke `token`; the other verbs allow account management outside a
+connection attempt.
 
 ## Options
 
 | Option | Applies to | Meaning |
 |---|---|---|
-| `--authority <a>` | `login`, `token` | The Entra ID authority. Normally a **host**: `login.microsoftonline.com` or `login.microsoftonline.us`. The `https://<host>/<tenant>` URL form is also accepted, because that is what Microsoft's own documentation calls the authority; only its host and its first path segment are ever read. A query, a fragment, userinfo, a non-`https` scheme or a deeper path is a usage error, and **no endpoint is ever taken from it**. Must be in the allowlist unless a *user* has added it in the configuration file. |
-| `--tenant <id>` | `login`, `token` | Tenant identifier or `common`/`organizations`. Validated: ASCII alphanumerics, `-` and `.`, bounded length. Defaults to `common`, or to the tenant in the URL form of `--authority`. Naming a different tenant in both is a usage error. |
-| `--cloud <name>` | `login`, `token` | `commercial` or `usgov`. A shortcut that fills in the authority host and, when no `--scope` is given, the four AVD scopes. It never overrides an explicit `--authority`, and naming a cloud that disagrees with one is a usage error. |
-| `--client-id <guid>` | `login`, `token` | Public client id. Defaults to the AVD client `a85cf173-4192-42f8-81fa-777a763e6e2c`. Must be in the allowlist unless a *user* has added it in the configuration file. |
-| `--scope <scope>` | `login`, `token` | Repeatable, given decoded. One occurrence may also carry a space-separated list; several occurrences and one space-separated occurrence mean exactly the same request and hit the same cache entry. Order is not significant; the cache key is the sorted, de-duplicated set. |
-| `--req-cnf <b64url>` | `token` | Base64url-encoded JSON confirmation object, e.g. `{"kid": "<key-id>"}`, produced by FreeRDP. Its presence makes the request a proof-of-possession request; its absence makes it a bearer request. |
-| `--account <id>` | `token`, `logout` | Which stored account to use. Omitted on `token`: the only account matching authority+tenant+client, or exit `30` if there is none or more than one, never a guess. Omitted on `logout`: every account. |
-| `--prompt {auto,always,never}` | `login`, `token` | `auto` (default): silent if possible, call the portal if not. `always`: force an interactive transaction even if a cached token would do. `never`: silent only; exit `10` rather than calling the portal. `login` treats `never` as an error (exit `64`). |
-| `--parent-window <handle>` | `login`, `token` | Optional and advisory. Passed straight through to the portal's `Start` so the sign-in window can be parented to the application that asked. Never trusted for authorization by any layer. |
-| `--session-mode {shared,ephemeral}` | `login`, `token` | Optional. Passed through to the portal. The portal decides: an unidentified caller is narrowed to `ephemeral` whatever it asks for. |
-| `--timeout <seconds>` | `login`, `token` | How long the sign-in window may stay up. Passed to the portal as its `timeout` option and enforced locally as well. Default 300. |
-| `--json` | all | Emit a JSON object on stdout instead of the plain form. |
-| `--format {raw,json}` | all | `--format json` is `--json`; `raw` is the default. Accepted so a caller can be explicit. |
-| `--config <path>` | all | Alternative configuration file. Overrides `ENTRA_TOKEN_HELPER_CONFIG`. |
-| `--verbose` | all | Raise the log level on **stderr**. Never changes what stdout contains, and never relaxes redaction. |
-| `--help`, `--version` | all | Print and exit `0`. |
+| `--authority <a>` | `login`, `token` | Authority host, normally `login.microsoftonline.com` or `login.microsoftonline.us`. Also accepts `https://<host>/<tenant>`; only the host and tenant are used. Query, fragment, userinfo, non-HTTPS scheme or a deeper path is a usage error. The host must be allowlisted. Required unless `--cloud` supplies it. |
+| `--tenant <id>` | `login`, `token` | Tenant identifier or `common`/`organizations`. Bounded ASCII alphanumerics, `-` and `.`. Defaults to the authority URL's tenant or `common`. A conflicting tenant in `--authority` is a usage error. |
+| `--cloud <name>` | `login`, `token` | `commercial` or `usgov`. Supplies the authority host and, without `--scope`, the AVD resource scope plus `openid`, `profile` and `offline_access`. An explicit authority must agree with the cloud. |
+| `--client-id <guid>` | `login`, `token` | Public client id. Defaults to AVD's `a85cf173-4192-42f8-81fa-777a763e6e2c`. Additional ids require configuration-file entries. |
+| `--scope <scope>` | `login`, `token` | Repeatable, decoded scopes. Each occurrence can contain a space-separated list. The cache key uses the sorted, deduplicated set. `token` requires scopes or `--cloud`. |
+| `--req-cnf <b64url>` | `token` | Caller-supplied base64url JSON confirmation object, such as `{"kid":"<key-id>"}`. Requests a token bound to the caller's key. Omission requests a bearer token. |
+| `--account <id>` | `token`, `logout` | Select a stored account. Omission on `token` selects the sole match for authority, tenant and client; no match or ambiguity gives exit `30` on a silent request. Omission on `logout` removes all accounts. |
+| `--prompt {auto,always,never}` | `login`, `token` | `auto` defaults to silent acquisition followed by interaction when needed. `always` forces sign-in for bearer requests; see [acquisition](#acquisition) for PoP behaviour. `never` forbids a window and gives exit `10` if interaction is required, or `30` without an account. `login --prompt never` gives exit `64`. |
+| `--parent-window <handle>` | `login`, `token` | Advisory window handle passed to the portal's `Start`. It grants no authorization. |
+| `--session-mode {shared,ephemeral}` | `login`, `token` | Passed to the portal. The portal restricts unidentified callers to `ephemeral`. |
+| `--timeout <seconds>` | `login`, `token` | Portal window timeout, default 300. Passed as the portal's `timeout` option. The local response deadline allows another 15 seconds for a positive timeout; zero uses a 300-second local deadline. |
+| `--json` | all | JSON output: success on stdout; operational errors on stderr. |
+| `--format {raw,json}` | all | `json` is equivalent to `--json`; `raw` is the default. |
+| `--config <path>` | all | Configuration path, overriding `ENTRA_TOKEN_HELPER_CONFIG`. |
+| `--verbose` | all | Allow debug diagnostics with the same redaction rules; see [output](#output) for GLib's environment requirement and stdout limitation. |
+| `--help`, `--version` | all | Print help or version and exit `0`. |
 
-## stdout
+## Output
 
-stdout carries **only** the result. Diagnostics, prompts and progress go to stderr. A caller may
-therefore capture stdout directly.
+Successful results use stdout; operational errors use stderr. Debug logging requires both
+`--verbose` and GLib's `entra` debug domain enabled, for example with `G_MESSAGES_DEBUG=entra`
+or `G_MESSAGES_DEBUG=all`. GLib's default handler sends enabled DEBUG
+messages to stdout, which can contaminate raw tokens or JSON, including on a non-zero exit.
+`--verbose` alone does not enable GLib's debug output. Until
+[issue #4](https://github.com/sjtrotter/entra-token-helper/issues/4) is fixed, keep debug logging
+disabled when consuming stdout as a token or JSON.
 
-**Plain form.** `token` prints the access token and a newline, nothing else:
+### Plain form
 
-```
+`token` prints the access token followed by a newline:
+
+```text
 eyJ0eXAiOiJKV1Qi...
 ```
 
-`login` prints one line naming the account. `accounts` prints one line per account: account id,
-authority, tenant, tab separated. `logout` prints one line per removed account. On any non-zero
-exit, stdout is **empty**.
+`login` prints `Signed in as <account>`. `accounts` prints account id, authority host and tenant,
+tab separated, one account per line. `logout` prints `Removed <account>` for each removed account.
 
-**JSON form (`--json`).** A single object on stdout:
+### JSON form
+
+A successful `token --json` prints one object on stdout:
 
 ```json
 {
@@ -82,136 +82,133 @@ exit, stdout is **empty**.
 }
 ```
 
-- `status`: `"ok"` on success; otherwise the symbolic name of the exit condition
-  (`"interaction_required"`, `"cancelled"`, `"no_account"`, `"unavailable"`, `"server_error"`,
-  `"usage"`, `"internal"`).
-- `token` and `access_token`: the same string under both names: `token` is the name this contract
-  fixed, `access_token` the name every OAuth consumer already reads. Present only when `status` is
-  `"ok"` and the verb is `token`.
-- `token_type`: `"Bearer"` or `"pop"`, as the authority spelled it.
-- `expires_in`: seconds remaining, relative to when the response was written.
-- `scope`: the scope the authority granted, which is not always the scope that was asked for.
-- `account`: the account the token belongs to.
-- `error`: present when `status` is not `"ok"`, a short, stable, machine-readable symbol.
-- `message`: present when `status` is not `"ok"`, a human-readable sentence, already redacted.
-  It never contains a token, a code, or an authorization-server `error_description`.
+- `status`: `"ok"`, `"interaction_required"`, `"cancelled"`, `"no_account"`, `"unavailable"`,
+  `"server_error"`, `"usage"` or `"internal"`.
+- `token` and `access_token`: aliases containing the same access token, present only for a
+  successful `token` request.
+- `token_type`: `"Bearer"` or `"pop"`, as returned by the authority.
+- `expires_in`: seconds remaining when the response is written.
+- `scope`: granted scopes, falling back to requested scopes if the authority omits them.
+- `account`: the account associated with the token.
+- `error`: stable machine-readable symbol on failure.
+- `message`: redacted human-readable failure text, excluding credentials and the authority's
+  `error_description`.
 
-For `accounts --json`, and for `login --json` and `logout --json`, the object carries an
-`"accounts"` array instead of the token fields.
+Successful `accounts --json`, `login --json` and `logout --json` responses contain an `accounts`
+array in place of token fields. Each entry has `account`, `authority` (host), `tenant` and
+`client_id` fields.
+
+Operational failures with `--json` print an error object on stderr. Argument parsing and usage
+validation can print plain stderr text even with `--json`.
+
+```json
+{
+  "schema": 1,
+  "status": "interaction_required",
+  "error": "interaction_required",
+  "message": "a sign-in window is required and --prompt never was given"
+}
+```
+
+Responses exclude refresh tokens, authorization codes, PKCE verifiers, `state`, PINs and raw
+`error_description` values.
 
 ## Exit codes
 
 | Code | Name | Meaning |
 |---|---|---|
-| `0` | success | The request succeeded. For `token`, stdout holds the token. |
-| `10` | interaction required | An interactive transaction would have been needed and `--prompt never` was given. The caller may retry with `--prompt auto`. Not an error condition; it is the documented way to ask "can you do this silently?" |
-| `20` | cancelled | The portal responded `1`: the user closed the sign-in window, or cancelled the certificate chooser or the PIN prompt. A caller should **not** immediately retry interactively. The user just said no. |
-| `30` | no such account | No account matched, `--account` named one that is not stored, or more than one matched and none was named. The caller should run `login`. |
-| `40` | provider unavailable | `org.freedesktop.portal.experimental.WebAuthentication1` is unavailable on `/org/freedesktop/portal/desktop`. The frontend must be started with `XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL=WebAuthentication1` and a WebAuthentication backend configured. The diagnostic on stderr names the interface, path, opt-in and backend requirement. The same code covers no session bus, no Secret Service keyring, and an unreachable authority. A dispatcher should treat this as "decline" and fall through to the next provider. |
-| `50` | authorization server error | The authority refused for a reason a window will not fix: a bad client, a bad request, a server fault. The details are on stderr, redacted to the OAuth error code. |
-| `64` | usage | Bad arguments. (`64` is `EX_USAGE` from `sysexits.h`.) |
-| `70` | internal | An unexpected failure in the client itself, including a portal `Response` of `2` for a reason other than unavailability, such as a timeout or a `backend_completion_mismatch`, and a completion URI that failed the callback classifier. (`70` is `EX_SOFTWARE`.) |
+| `0` | success | Request succeeded. `token` writes its result to stdout. |
+| `10` | interaction required | A window is required and `--prompt never` forbids it. Retry with `--prompt auto` if interaction is allowed. |
+| `20` | cancelled | Portal `Response` is `1`: the user closed the sign-in window. Avoid an immediate interactive retry. |
+| `30` | no such account | A silent request has no matching account, or account selection is ambiguous. Use `login` or select an account explicitly. |
+| `40` | provider unavailable | Portal interface, session bus, keyring or authority is unavailable. The portal diagnostic names its interface, path, frontend opt-in and backend requirement. A dispatcher should try another provider. |
+| `50` | authorization server error | The authority refused the request for a reason requiring more than sign-in, such as a bad client or server fault. Diagnostics include redacted OAuth error codes. |
+| `64` | usage | Invalid arguments; `EX_USAGE` from `sysexits.h`. |
+| `70` | internal | Unexpected client failure, invalid callback, or portal `Response` `2` for a reason such as timeout or `backend_completion_mismatch`; `EX_SOFTWARE`. |
 
-The distinction that matters to a dispatcher is `40` (decline, try someone else) versus `20`
-(stop, the user said no) versus `50` (stop, the server said no). Collapsing these into a boolean
-is exactly the defect the FreeRDP provider interface has today.
+Portal failure reasons `no_backend`, `backend_disappeared`, `credential_unavailable` and
+`no_display` map to `40`. Cancelling the certificate chooser returns `Response` `2` with
+`credential_unavailable` and exits `40`. Cancelling the PIN prompt during signing fails the TLS
+handshake; the page load then usually ends as `load_failed`, which exits `70`. Other `Response` `2` reasons map to `70`. Dispatchers
+should preserve the difference between unavailability (`40`), cancellation (`20`) and server
+refusal (`50`).
 
-**`invalid_grant` is not `50`.** An expired, revoked or Conditional-Access-challenged refresh token
-is the authority saying "ask the human", not "no". It becomes a sign-in when `--prompt` allows one
-and exit `10` when it does not.
+`invalid_grant`, `interaction_required`, `consent_required` and `login_required` in a refresh
+response's `error` or `suberror` trigger interactive fallback when permitted, or exit `10` when
+interaction is forbidden. Authorization-code exchange failures propagate directly without
+another interactive attempt.
 
-## What each verb actually does
+## Acquisition
 
-### `login`
+### Login
 
-1. Resolves the authority to a host and a tenant, checks both allowlists, derives the
-   authorization and token endpoints from its own cloud table, and refines them with the
-   authority's OpenID configuration if it answers. **Discovery refines, it does not gate**: a
-   failed fetch is a DEBUG line and the derived endpoints stand.
-2. Builds the authorization URL: `response_type=code`, PKCE `S256`, a fresh 256-bit `state`,
-   `prompt=select_account` (`login` under `--prompt always`), and the nativeclient redirect.
-3. Calls `org.freedesktop.portal.experimental.WebAuthentication1.Start` with the completion URI set
-   to that same redirect, having subscribed to the `Response` signal first so a fast completion
-   cannot race the subscription.
-4. Classifies what comes back (see below) and exchanges the code with the verifier.
-5. Stores the account: refresh token, ID token and the access token just issued, in the Secret
-   Service.
-6. Prints `Signed in as <upn>`. The UPN comes from the ID token's `preferred_username`, `upn`,
-   `unique_name`, `email` or `sub`, whichever is there first. **The signature is not checked and
-   nothing is authorized by it**: the ID token arrived over TLS from an endpoint this client chose,
-   in the answer to a request it made with a verifier no one else has, and the name is a label so a
-   human can tell two sign-ins apart.
+1. Validate authority, tenant and client id against the parsing rules and allowlists. Derive
+   endpoints from the cloud table. OpenID discovery runs when an endpoint is needed; a failed
+   discovery fetch logs a debug event and leaves the derived endpoints in use.
+2. Build an authorization URL with `response_type=code`, PKCE `S256`, a fresh 256-bit `state` and
+   the `nativeclient` redirect. Use `prompt=select_account`, or `prompt=login` with `--prompt always`.
+3. Subscribe to `Response` before calling
+   `org.freedesktop.portal.experimental.WebAuthentication1.Start`. Supply the redirect as
+   `completion_uri`; the authorization URL sent to the portal includes `state`.
+4. Classify the returned URI and exchange its code with the PKCE verifier.
+5. Store the refresh token, ID token and issued access token in the keyring.
+6. Print the account label. Claim preference is `preferred_username`, `upn`, `unique_name`,
+   `email`, then `sub`; absent a usable claim, use `unknown@<authority-host>`.
 
-### `token`
+ID-token handling is documented under [secrets](SECURITY.md#secrets).
 
-A **bearer** request, in order:
+### Token
 
-1. The cache, unless `--prompt always`. A cached access token is used if it is more than five
-   minutes from expiry. **This costs no network at all**, not even a discovery fetch.
-2. The `refresh_token` grant.
-3. A full interactive sign-in, if `--prompt` allows one; otherwise exit `10`, or exit `30` when
-   there is no account to refresh from.
+Bearer requests with `--prompt always` skip both cache lookup and refresh. Other bearer requests
+check the cache: a token more than five minutes from expiry is returned without network access,
+including discovery. On a cache miss, attempt a refresh grant if the account has a refresh token.
+Sign in interactively when no refresh token is available or refresh requires interaction, subject
+to the [failure handling](#exit-codes) above. Without an account, a silent request exits `30`;
+a stored account requiring interaction gives `10`.
 
-A **proof-of-possession** request (`--req-cnf`) never uses the cache, because a PoP token is bound
-to one key and a cache that ignored the binding would hand back a token the caller cannot use. It
-adds
-`token_type=pop` and `req_cnf` to the grant. It goes:
+For proof-of-possession requests, send `token_type=pop` and `req_cnf` on each grant and never cache
+the returned token. Try the refresh grant first, including with `--prompt always`. If interaction
+is required, authorize for the requested scope without a `prompt` parameter,
+then exchange the code with the same confirmation object. An interactive exchange stores a
+rotated refresh token for an existing account. The successful PoP refresh path does not persist
+refresh-token rotation.
 
-1. The `refresh_token` grant, with the confirmation object.
-2. If the authority answers `interaction_required`, `consent_required`, `login_required` or
-   `invalid_grant` (in `error` or in `suberror`), **a full interactive authorize for that scope**,
-   exchanged with `token_type=pop` and `req_cnf` on the authorization code grant. Any rotated
-   refresh token that comes back is stored; the PoP token itself is not.
+The RDS-AAD scope can require a remote-desktop trust interstitial; see the
+[dated observation](TESTING.md#live-evidence).
 
-**Expect a window here, and expect it to say something odd.** The RDS-AAD scope is
-`ms-device-service://termsrv.wvd.microsoft.com/name/<host>/user_impersonation`, and Entra routinely
-puts an interstitial in front of it: "you are connecting to a remote desktop", "make sure you
-trust this client". That page appears **inside the portal's sign-in window** at this step, is
-answered there, and is the reason no `prompt` parameter is sent on this request: naming one of ours
-would only fight with it. A run observed on hardware, 2026-09-03, shows FreeRDP doing exactly
-this: a second authorization for the device-service scope, then `grant_type=authorization_code`
-with `req_cnf`.
+### Callback classifier
 
-### The callback classifier
+The portal checks completion-URI matching. The client validates the OAuth response against its
+transaction. Acceptance requires:
 
-The portal guarantees only that the URI it returns matched the completion URI it was given. Whether
-that URI is *this transaction's authorization response* is OAuth knowledge and lives in the client.
-A URI is accepted only when:
+- Equal scheme, host, port and path; an empty path and `/` are equivalent.
+- No userinfo or fragment.
+- Exactly one `state`, compared in constant time with the transaction's value.
+- Exactly one of `code` or `error`, occurring once. A valueless parameter counts, so
+  `?code=good&code` is rejected.
+- Well-formed percent escapes and no decoded NUL (`%00`) in `state`, `code` and `error` values.
+  Unrecognized query fields are skipped before decoding; `ignored=%00` is not rejected.
 
-- scheme, host, port and path equal the transaction's redirect (empty path and `/` are the same
-  resource);
-- there is no userinfo and no fragment;
-- `state` occurs exactly once and matches in constant time;
-- exactly one of `code` or `error` is present, each occurring exactly once. **A parameter present
-  without a value still counts as an occurrence**, so `?code=good&code` is refused;
-- every percent escape is well formed and none decodes to `%00`.
+A transaction accepts one terminal response. Further responses are rejected as replays or
+unrelated requests.
 
-A transaction answers once. A second response, whatever it carries, is a replay or an answer to a
-request this process did not make.
+## Storage
 
-## Where things are stored
-
-One Secret Service item per account, schema `io.github.sjtrotter.entra-token-helper`, with three
-attributes:
+One Secret Service item stores an account, using schema `io.github.sjtrotter.entra-token-helper`.
 
 | Attribute | Value |
 |---|---|
-| `authority` | `https://<host>/<tenant>`, the full base, so the same person in two tenants is two items rather than one overwriting the other |
-| `client_id` | the public client id |
-| `account` | the UPN |
+| `authority` | Full `https://<host>/<tenant>` base; tenants have separate items |
+| `client_id` | Public client id |
+| `account` | Account label, normally the UPN |
 
-The secret is a JSON record holding the refresh token, the ID token, and the access tokens cached
-under the sorted scope set. The refresh token is the only thing in it that is months of standing
-access; the access token is in there too because the CLI is a one-shot process and an in-memory
-cache would live for the length of one call. Neither is ever written to a file, a log, or the JSON
-response. See [SECURITY.md](../SECURITY.md).
+The [security model](SECURITY.md#secrets) describes stored tokens and persistence; see the
+[reporting policy](../SECURITY.md) for findings.
 
-## Request / response schema
+## Request
 
-The same objects, described once, so that the CLI and a future socket or D-Bus transport carry
-the same payload.
-
-### Request
+The client accepts command-line arguments. This schema describes equivalent inputs for a future
+socket or D-Bus transport:
 
 ```json
 {
@@ -234,80 +231,73 @@ the same payload.
 }
 ```
 
-- `token_kind` is `"bearer"` or `"pop"`; `"pop"` requires `req_cnf`.
-- `scopes` are **decoded**. Whether a scope arrives encoded or decoded is exactly the kind of
-  ambiguity the current FreeRDP varargs convention leaves open, so it is pinned here.
-- `parent_window` is optional and advisory. It is passed straight through to the portal's `Start`
-  and by the frontend, uninterpreted, to whichever backend parses it, so the sign-in window can
-  be parented to the application that asked, and it is never trusted for authorization by any
-  layer.
-- Fields a caller may **not** set, in any transport: token endpoint, authorization endpoint,
-  redirect URI, or any URL at all. The client derives every URL from the authority and its own
-  cloud table, and it is the client, not its caller, that gives the portal its `completion_uri`.
-  See [SECURITY.md](../SECURITY.md).
+`token_kind` is `bearer` or `pop`; `pop` requires `req_cnf`. Scopes are decoded. The advisory
+`parent_window` passes through the frontend to the backend for parenting and grants no
+authorization.
 
-### Response
-
-As the JSON form above, or:
-
-```json
-{
-  "schema": 1,
-  "status": "interaction_required",
-  "error": "interaction_required",
-  "message": "a sign-in window is required and --prompt never was given"
-}
-```
-
-The response never contains a refresh token, an authorization code, a PKCE verifier, a `state`
-value, a PIN, or a raw authorization-server `error_description`.
+Endpoint and redirect constraints are defined under [access control](SECURITY.md#access-control).
+Report violations under the [security policy](../SECURITY.md).
 
 ## Environment
 
-**No environment variable is required.** The client runs correctly with an empty environment apart
-from what the desktop session itself provides. It needs `DBUS_SESSION_BUS_ADDRESS` to reach the
-portal and the Secret Service; a display is the *backend's* requirement, not the client's, which is
-why a client invoked from a headless context gets a clean `40` rather than a crash.
+The client uses the desktop session's `DBUS_SESSION_BUS_ADDRESS` to reach the portal and keyring.
+A display is required by the backend. An unavailable display maps to exit `40`.
 
 | Variable | Meaning |
 |---|---|
-| `ENTRA_TOKEN_HELPER_CONFIG` | Optional. Path to a configuration file, overriding the default under `$XDG_CONFIG_HOME`. `--config` overrides it. |
+| `ENTRA_TOKEN_HELPER_CONFIG` | Optional configuration path. Overrides the default under `$XDG_CONFIG_HOME`; `--config` takes precedence. |
 
-Behaviour is deliberately **not** taken from other environment variables. A library whose
-behaviour is set by process environment is hard for an embedding client to control, and an
-environment variable is an easy thing for a hostile parent to set. In particular there is no
-environment variable that widens an allowlist or trusts a certificate.
+Allowlist and certificate-trust settings are documented under [configuration file](#configuration-file).
 
 ## Development frontend
 
-Use the `experimental/integration` branch of `sjtrotter/xdg-desktop-portal` with a
-configured WebAuthentication backend. The interface is
-`org.freedesktop.portal.experimental.WebAuthentication1` on
-`/org/freedesktop/portal/desktop`, bus name `org.freedesktop.portal.Desktop`.
-Request and Session objects retain their `/request/...` and `/session/...` handle
-paths under `/org/freedesktop/portal/desktop`.
+Use the [`experimental/integration` branch of `sjtrotter/xdg-desktop-portal`](https://github.com/sjtrotter/xdg-desktop-portal/tree/experimental/integration)
+with configured backends. The public bus name is `org.freedesktop.portal.Desktop`; public and
+backend portal interfaces use `/org/freedesktop/portal/desktop`.
 
-Start it on the session bus from a checkout of `xdg-desktop-portal-webauth`:
+The frontend derives the app id, validates both URIs, filters options and returns one `Response`.
+The backend owns the window's security chrome, storage partition, navigation interception and TLS
+client-certificate handling.
+
+| Portal | Public interface | Backend interface |
+|---|---|---|
+| Web authentication | `org.freedesktop.portal.experimental.WebAuthentication1` | `org.freedesktop.impl.portal.experimental.WebAuthentication1` |
+| Certificate | `org.freedesktop.portal.experimental.Certificate1` | `org.freedesktop.impl.portal.experimental.Certificate1` |
+
+For a portal to be exported, its `<Name>1` must appear in the frontend's
+`XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL` environment at startup and its backend must be configured.
+For smart-card sign-in through both portals, include `WebAuthentication1,Certificate1`, comma
+separated without spaces. Preserve existing entries and append missing names. Setting this only
+in the client's environment does not enable an interface in a running frontend.
+
+Request and Session handles use `/request/...` and `/session/...` under
+`/org/freedesktop/portal/desktop`. An interactive request without WebAuthentication exits `40`;
+cached token retrieval and account management do not require the portal.
+
+From a checkout of `xdg-desktop-portal-webauth`, start a development frontend on the session bus:
 
 ```bash
 tools/dev-stack.sh --live --keep --no-e2e
 ```
 
-That script replaces the session's frontend with the built one, keeps every
-installed `.portal` file and the effective `portals.conf` (so other portals keep
-working), routes `org.freedesktop.impl.portal.experimental.WebAuthentication1` to
-the webauth backend, and starts the frontend with `WebAuthentication1` added to
-`XDG_DESKTOP_PORTAL_ENABLE_EXPERIMENTAL`. The variable must be in the frontend's
-environment at startup; setting it only for the client has no effect. For the
-certificate portal as well, use that repository's `tools/portal-stack.sh --live`.
+This replaces the session frontend, preserves installed `.portal` entries and effective
+`portals.conf` settings, routes the WebAuthentication backend interface to webauth, and adds
+`WebAuthentication1` to the frontend opt-in. For both portals, run this command from that same
+webauth checkout:
 
-Run `entra-token-helper login` from another terminal on the same session bus.
-`tools/entra-e2e.sh` sets the same opt-in for its private frontend.
+```bash
+tools/portal-stack.sh --live --no-e2e --keep
+```
 
-## The configuration file
+Invoke the client's `login --cloud usgov --tenant <tenant-id>` from another terminal on the same
+session bus. This repository's private mock stack is documented under
+[end-to-end tests](TESTING.md#end-to-end-tests).
 
-A GKeyFile, at `$XDG_CONFIG_HOME/entra-token-helper/config` unless `--config` or
-`ENTRA_TOKEN_HELPER_CONFIG` says otherwise. A missing file is not an error.
+## Configuration file
+
+The GKeyFile path defaults to `$XDG_CONFIG_HOME/entra-token-helper/config` (normally
+`~/.config/entra-token-helper/config`), with overrides listed under [environment](#environment).
+A missing file uses the built-in defaults.
 
 ```ini
 [allow]
@@ -318,29 +308,43 @@ client_ids  = 00000000-0000-0000-0000-000000000000;
 trust_certificate = /path/to/fixture.pem
 ```
 
-`[allow]` is how a **user** widens the two allowlists, one entry at a time, never with a wildcard.
-`[testing] trust_certificate` names a PEM to trust **instead of** the system store; it exists for
-the mock authority in `tools/entra-e2e.sh` and is the client's only trust override, mirroring the
-backend's single `--debug-trust-certificate` option. Both are in a file rather than a flag so that
-a hostile parent process cannot set them.
+`[allow]` adds individual authorities or client ids, without wildcards. `[testing]
+trust_certificate` replaces system trust with a PEM file for the mock authority in
+`tools/entra-e2e.sh`. The backend separately uses `--debug-trust-certificate` for its web view.
+There are no direct environment overrides for these settings. The file's trust boundary is
+documented under [access control](SECURITY.md#access-control).
+
+## FreeRDP integration
+
+[FreeRDP #13340](https://github.com/FreeRDP/FreeRDP/pull/13340) defines an external web-view helper:
+JSON-RPC over pipes, with `navigate` carrying a URL, redirect URI prefix and timeout. The helper
+returns the redirect URL verbatim; FreeRDP owns OAuth. Selection uses
+`/azure:auth-helper:<path|autodetect>`. The opening date and review evidence are in
+[Testing](TESTING.md#live-evidence).
+
+Integration requires a helper implementing that protocol and forwarding `navigate` to the portal.
+That helper is unimplemented here; it would not need this client's OAuth implementation. The
+`client/entra-token-helper` fork branch is a proof of concept; see the live evidence.
+
+`sso-mib` is the sibling provider for Intune-enrolled devices. It calls Microsoft's Linux
+Identity Broker over D-Bus. The broker holds a device-bound primary refresh token (PRT), which
+this browser-based client cannot mint.
 
 ## Compatibility promise
 
 Within `"schema": 1`:
 
-- The four verbs, their option names, and their meanings do not change.
-- Exit codes do not change meaning, and no exit code is reused for a different condition.
-- The plain stdout form of `token` stays "the token and a newline, nothing else".
-- New optional options may be added. New optional fields may be added to the JSON request and
-  response. A consumer must ignore fields it does not recognise.
-- New exit codes may be added for conditions that do not fit an existing one; a consumer should
-  treat an unknown non-zero code as a hard error rather than as a decline.
-- `status` and `error` symbols are stable. `message` text is not: do not parse it.
+- Verb names, option names and meanings remain stable.
+- Exit codes retain their meanings and are never reused for different conditions.
+- Plain `token` output remains the token followed by a newline, subject to the
+  [debug logging limitation](#output).
+- Optional options and JSON fields may be added. Consumers must ignore unknown fields.
+- New exit codes may describe additional conditions. Treat unknown non-zero codes as hard errors.
+- `status` and `error` symbols are stable. `message` text can change and must not be parsed.
 
-A change to any of the above requires `"schema": 2` and a documented migration. Until this
-project has acquired a single real token, the schema should be considered provisional.
+An incompatible change requires `"schema": 2` and a documented migration.
 
-The portal interface version is separate from the CLI schema. The client uses version 1 of
-[`org.freedesktop.portal.experimental.WebAuthentication1`](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/PUBLIC-INTERFACE.md)
-on xdg-desktop-portal. Breaking changes increment the trailing interface number;
-non-breaking changes increment the `version` property. The backend interface version is independent.
+The portal interface version is independent of the CLI schema. The client uses
+[`org.freedesktop.portal.experimental.WebAuthentication1`](https://github.com/sjtrotter/xdg-desktop-portal-webauth/blob/main/docs/PUBLIC-INTERFACE.md).
+Portal versioning follows [ADR 0004](decisions/0004-merged-experimental-portal-convention.md).
+The backend interface version is independent.
