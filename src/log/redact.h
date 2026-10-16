@@ -44,6 +44,7 @@ char* entra_redact_error_text(const char* message);
 /** Overwrite and free credential material. */
 void entra_scrub(char* secret);
 
+void entra_log_init(void);
 void entra_log_set_verbose(gboolean verbose);
 gboolean entra_log_get_verbose(void);
 

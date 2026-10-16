@@ -10,6 +10,12 @@
 
 static gboolean entra_verbose = FALSE;
 
+void entra_log_init(void)
+{
+	g_log_writer_default_set_use_stderr(TRUE);
+	g_log_set_writer_func(g_log_writer_default, NULL, NULL);
+}
+
 void entra_log_set_verbose(gboolean verbose)
 {
 	entra_verbose = verbose;

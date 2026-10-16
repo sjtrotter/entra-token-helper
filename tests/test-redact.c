@@ -91,6 +91,60 @@ static void test_verbose_is_a_frequency_not_a_permission(void)
 	entra_log_set_verbose(FALSE);
 }
 
+static void test_logs_use_stderr(gconstpointer data)
+{
+	const char* debug_domains = data;
+	g_autofree char* saved_domains = g_strdup(g_getenv("G_MESSAGES_DEBUG"));
+	g_autofree char* saved_invocation = g_strdup(g_getenv("DEBUG_INVOCATION"));
+
+	if (g_test_subprocess())
+	{
+		entra_log_init();
+		g_log_set_default_handler(g_log_default_handler, NULL);
+		g_log_set_always_fatal(G_LOG_FATAL_MASK);
+		entra_log_set_verbose(FALSE);
+		entra_log_event(G_LOG_LEVEL_DEBUG, "verbose-disabled", NULL);
+		entra_log_set_verbose(TRUE);
+		entra_log_event(G_LOG_LEVEL_DEBUG, "debug-event", "token", ENTRA_FIELD_TOKEN, TOKEN,
+		                "account", ENTRA_FIELD_ACCOUNT, ACCOUNT, NULL);
+		entra_log_event(G_LOG_LEVEL_INFO, "info-event", NULL);
+		g_log_structured("dependency", G_LOG_LEVEL_DEBUG, "MESSAGE", "dependency-debug");
+		g_log_structured("dependency", G_LOG_LEVEL_INFO, "MESSAGE", "dependency-info");
+		entra_log_event(G_LOG_LEVEL_MESSAGE, "message-event", NULL);
+		entra_log_event(G_LOG_LEVEL_WARNING, "warning-event", NULL);
+		entra_log_event(G_LOG_LEVEL_CRITICAL, "critical-event", NULL);
+		return;
+	}
+
+	g_setenv("G_MESSAGES_DEBUG", debug_domains, TRUE);
+	g_unsetenv("DEBUG_INVOCATION");
+	g_test_trap_subprocess(NULL, 5 * G_USEC_PER_SEC, G_TEST_SUBPROCESS_DEFAULT);
+	if (saved_domains != NULL)
+		g_setenv("G_MESSAGES_DEBUG", saved_domains, TRUE);
+	else
+		g_unsetenv("G_MESSAGES_DEBUG");
+	if (saved_invocation != NULL)
+		g_setenv("DEBUG_INVOCATION", saved_invocation, TRUE);
+
+	g_test_trap_assert_passed();
+	g_test_trap_assert_stdout("");
+	g_test_trap_assert_stderr_unmatched("*verbose-disabled*");
+	g_test_trap_assert_stderr_unmatched("*" TOKEN "*");
+	g_test_trap_assert_stderr_unmatched("*" ACCOUNT "*");
+	g_test_trap_assert_stderr("*message-event*warning-event*critical-event*");
+	if (g_strcmp0(debug_domains, "all") == 0 || g_strcmp0(debug_domains, "entra") == 0)
+		g_test_trap_assert_stderr("*debug-event token=<token:* account=<account:*info-event*");
+	else
+	{
+		g_test_trap_assert_stderr_unmatched("*debug-event*");
+		g_test_trap_assert_stderr_unmatched("*info-event*");
+	}
+	if (g_strcmp0(debug_domains, "all") == 0 || g_strcmp0(debug_domains, "dependency") == 0)
+		g_test_trap_assert_stderr("*dependency-debug*dependency-info*");
+	else
+		g_test_trap_assert_stderr_unmatched("*dependency-*");
+}
+
 int main(int argc, char** argv)
 {
 	g_test_init(&argc, &argv, NULL);
@@ -103,6 +157,10 @@ int main(int argc, char** argv)
 	g_test_add_func("/redact/public-fields-preserved", test_the_loggable_fields_are_loggable);
 	g_test_add_func("/redact/error-text", test_error_text_is_cut_before_a_uri);
 	g_test_add_func("/redact/verbose-toggle", test_verbose_is_a_frequency_not_a_permission);
+	g_test_add_data_func("/redact/log-stderr/all", "all", test_logs_use_stderr);
+	g_test_add_data_func("/redact/log-stderr/domain", "entra", test_logs_use_stderr);
+	g_test_add_data_func("/redact/log-stderr/other-domain", "dependency", test_logs_use_stderr);
+	g_test_add_data_func("/redact/log-stderr/filtered", "", test_logs_use_stderr);
 
 	return g_test_run();
 }

@@ -8,8 +8,8 @@ portal for smart-card authentication.
 
 ## Try it
 
-Build dependencies are GLib/GIO 2.76 or newer, libsoup 3, json-glib and libsecret. `meson.build`
-still declares GLib 2.66 ([#4](https://github.com/sjtrotter/entra-token-helper/issues/4)).
+Build dependencies are GLib/GIO 2.76 or newer, libsoup 3, json-glib and libsecret. Meson enforces
+the GLib minimum and flags use of newer GLib APIs during compilation.
 
 ```console
 $ meson setup build && ninja -C build && meson test -C build
@@ -31,6 +31,9 @@ $ build/entra-token-helper token --cloud usgov --tenant <tenant-id> \
 Replace the placeholders and confirmation object with your tenant, account and caller's key
 binding. See the [CLI contract](docs/CLI.md) for options, output and exit codes, and
 [Testing](docs/TESTING.md) for the mock end-to-end command and live-run evidence.
+
+Diagnostics use stderr at every log level. Client debug logging requires `--verbose` and
+`G_MESSAGES_DEBUG=entra` or `G_MESSAGES_DEBUG=all`; stdout remains available for tokens or JSON.
 
 ## Status
 
@@ -86,8 +89,6 @@ and the sibling `sso-mib` provider for Intune-enrolled devices.
   Firefox's and Chrome's, so browser SSO is unavailable.
 - The account name printed by `login` comes from an unverified ID token claim and grants no
   authorization.
-- With `G_MESSAGES_DEBUG=entra` and `--verbose`, debug lines go to stdout and mix with the
-  token output ([#4](https://github.com/sjtrotter/entra-token-helper/issues/4)).
 
 ## Documents
 

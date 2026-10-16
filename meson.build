@@ -33,9 +33,9 @@ add_project_arguments(
   language: 'c',
 )
 
-glib_dep = dependency('glib-2.0', version: '>= 2.66')
-gobject_dep = dependency('gobject-2.0', version: '>= 2.66')
-gio_dep = dependency('gio-2.0', version: '>= 2.66')
+glib_dep = dependency('glib-2.0', version: '>= 2.76')
+gobject_dep = dependency('gobject-2.0', version: '>= 2.76')
+gio_dep = dependency('gio-2.0', version: '>= 2.76')
 
 soup_dep = dependency('libsoup-3.0', version: '>= 3.0')
 json_dep = dependency('json-glib-1.0', version: '>= 1.6')
@@ -48,6 +48,8 @@ entra_deps = [glib_dep, gobject_dep, gio_dep, soup_dep, json_dep, secret_dep]
 # --verbose applies only to the client log domain.
 entra_c_args = [
   '-DG_LOG_DOMAIN="entra"',
+  '-DGLIB_VERSION_MIN_REQUIRED=GLIB_VERSION_2_76',
+  '-DGLIB_VERSION_MAX_ALLOWED=GLIB_VERSION_2_76',
   '-DENTRA_VERSION="' + meson.project_version() + '"',
 ]
 
